@@ -76,6 +76,14 @@ export class PlayerState extends Schema {
   @type(BonusPool) bonuses = new BonusPool();
   @type(PlayerSheet) sheet = new PlayerSheet();
   @type([ PendingBonus ]) pendingBonuses = new ArraySchema<PendingBonus>();
+  // 已触发的 bonus 标志，替代 _y_c0 等 as-any hack，确保断线重连后不丢失
+  @type([ "string" ]) earnedBonuses = new ArraySchema<string>();
+  // 被动玩家本轮是否已完成选择
+  @type("boolean") passiveDone: boolean = false;
+  // 断线重连状态
+  @type("boolean") isConnected: boolean = true;
+  // 被动玩家已选定的骰子 ID（两步操作：先选骰子，再标记格子）
+  @type("string") pendingPassiveDieId: string = "";
 
   constructor(sessionId: string, name: string) {
     super();

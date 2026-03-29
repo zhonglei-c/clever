@@ -1,0 +1,346 @@
+ 快可聪明桌游 - 完整开发计划                                                                        
+                                                                                                    
+ Context                                                                                            
+                                                                                                    
+ "快可聪明"是对 Ganz schön clever 桌游的在线多人实现，目前核心游戏逻辑约完成                        
+ 85-90%，但存在被动玩家阶段未完成、无断线重连、无房间系统、无对局记录、UI
+ 较为简陋等问题，无法进行生产部署。
+
+ 用户选择： SQLite 存储 + Docker 部署 + 暗色桌游 UI 风格
+
+ ---
+ 阶段概览
+
+ ┌─────────┬─────────────────────────────────────┬────────────────────────────────────┐
+ │  阶段   │                内容                 │              关键文件              │
+ ├─────────┼─────────────────────────────────────┼────────────────────────────────────┤
+ │ Phase 0 │ 基础修复（类型安全 + 环境配置）     │ schema/GameState.ts, CleverRoom.ts │
+ ├─────────┼─────────────────────────────────────┼────────────────────────────────────┤
+ │ Phase 1 │ 游戏逻辑完善（被动阶段 + 断线重连） │ CleverRoom.ts                      │
+ ├─────────┼─────────────────────────────────────┼────────────────────────────────────┤
+ │ Phase 2 │ 完整房间系统                        │ server/index.ts, server/rooms/     │
+ ├─────────┼─────────────────────────────────────┼────────────────────────────────────┤
+ │ Phase 3 │ 对局记录系统（SQLite）              │ server/db/, server/routes/         │
+ ├─────────┼─────────────────────────────────────┼────────────────────────────────────┤
+ │ Phase 4 │ UI 全面美化                         │ client/components/, client/app/    │
+ ├─────────┼─────────────────────────────────────┼────────────────────────────────────┤
+ │ Phase 5 │ 部署配置（Docker）                  │ Dockerfile, docker-compose.yml     │
+ └─────────┴─────────────────────────────────────┴────────────────────────────────────┘
+
+ ---
+ Phase 0：基础修复（类型安全 + 环境配置）
+
+ 0.1 修复 Bonus 追踪机制
+
+ 问题： bonus 触发标志（_y_c0、_b_b2 等）用下划线前缀存在 player 对象上，不在 Schema
+ 中，断线后丢失。
+
+ 修复方案：
+ - 在 server/schema/GameState.ts 的 PlayerState 中新增 earnedBonuses: ArraySchema<string> 字段
+ - 记录已获得 bonus 的标识（如 "y_c0", "b_b2"）
+ - 替换 CleverRoom.ts 中所有 (player as any)._xxx 读写为 schema 字段操作
+
+ 0.2 修复 pendingDieId 类型安全
+
+ 问题： (client as any).pendingDieId 不类型安全
+
+ 修复方案：
+ - 在 PlayerState schema 中增加 pendingDieId: string 字段，或在 CleverRoom 用 Map<string, string>
+ 维护 sessionId → pendingDieId 的映射
+
+ 0.3 环境变量配置
+
+ 修复：
+ - 客户端新建 client/.env.local (开发) 和 client/.env.production
+ - 添加 NEXT_PUBLIC_SERVER_URL=ws://localhost:2567
+ - 修改 client/app/page.tsx:7 的硬编码地址为 process.env.NEXT_PUBLIC_SERVER_URL
+ - 服务端 server/index.ts 已支持 process.env.PORT，确认 CORS 也使用环境变量配置
+
+ ---
+ Phase 1：游戏逻辑完善
+
+ 1.1 完成被动玩家阶段（CleverRoom.ts:101 TODO）
+
+ 当前问题： 被动玩家点"完成"直接跳过，不做任何标记。
+
+ 完整实现：
+ - finishPassiveTurn handler 接收 { dieId: string | null }
+   - null 表示跳过（没有合适的格子可标记）
+   - 非 null 时：查找 silverPlatter 中的 die，调用与主动玩家相同的 markDie 逻辑
+ - 在 PlayerState 中增加 passiveDone: boolean schema 字段替代 _passive_done hack
+ - 所有被动玩家标记完成（或跳过）后，进入下一轮
+
+ 1.2 断线重连支持
+
+ 实现方案（使用 Colyseus 内置 allowReconnection）：
+
+ 在 CleverRoom.ts 的 onLeave 中：
+ async onLeave(client: Client, consented: boolean) {
+   // 标记玩家为离线状态（不删除）
+   const player = this.state.players.get(client.sessionId);
+   if (player) {
+     player.isConnected = false;
+   }
+
+   // 等待最多 60 秒重连
+   try {
+     await this.allowReconnection(client, 60);
+     // 重连成功
+     player.isConnected = true;
+   } catch {
+     // 超时，真正离开
+     this.state.players.delete(client.sessionId);
+     this.advanceTurnIfNeeded();  // 如果是当前活跃玩家，跳过其回合
+   }
+ }
+
+ Schema 新增字段：
+ - PlayerState.isConnected: boolean
+ - PlayerState.passiveDone: boolean
+ - PlayerState.earnedBonuses: ArraySchema<string>
+
+ 客户端重连逻辑：
+ - 检测 room.onError 和连接断开事件
+ - 尝试 client.reconnect(roomId, sessionId) 重新加入
+ - 显示"正在重连..."UI 状态
+
+ ---
+ Phase 2：完整房间系统
+
+ 2.1 服务端房间 API
+
+ 在 server/index.ts 新增 REST 端点：
+
+ GET  /api/rooms          - 列出所有等待中的房间
+ POST /api/rooms          - 创建新房间（可设置房间名、最大人数）
+ GET  /api/rooms/:roomId  - 获取特定房间信息
+
+ 房间元数据通过 Colyseus matchMaker.query() 获取，结合房间自定义 metadata。
+
+ 2.2 房间 Schema 增强
+
+ 在 GameStateSchema 增加：
+ - roomName: string - 房间名（玩家自定义）
+ - hostSessionId: string - 房主 session
+ - createdAt: number - 创建时间戳
+
+ 2.3 房间创建选项
+
+ 修改 CleverRoom onCreate(options) 支持：
+ {
+   roomName: string,    // 自定义房间名
+   maxRounds?: number,  // 4（默认）
+   maxPlayers?: number, // 2-6
+ }
+
+ 2.4 客户端房间大厅页面
+
+ 新文件 client/app/lobby/page.tsx：
+ - 显示当前所有开放房间列表（房间名、人数、状态）
+ - "创建新房间"按钮（弹窗输入房间名）
+ - "通过房间码加入"输入框
+ - 每 3 秒自动刷新房间列表
+
+ ---
+ Phase 3：对局记录系统
+
+ 3.1 SQLite 数据库设置
+
+ 新建 server/db/database.ts，使用 better-sqlite3：
+
+ CREATE TABLE games (
+   id TEXT PRIMARY KEY,         -- 游戏唯一ID（UUID）
+   room_id TEXT,                -- Colyseus 房间ID
+   room_name TEXT,
+   started_at INTEGER,          -- Unix timestamp
+   ended_at INTEGER,
+   total_rounds INTEGER,
+   winner_name TEXT
+ );
+
+ CREATE TABLE game_players (
+   id INTEGER PRIMARY KEY AUTOINCREMENT,
+   game_id TEXT REFERENCES games(id),
+   player_name TEXT,
+   total_score INTEGER,
+   yellow_score INTEGER,
+   blue_score INTEGER,
+   green_score INTEGER,
+   orange_score INTEGER,
+   purple_score INTEGER,
+   fox_bonus INTEGER,
+   rerolls_used INTEGER,
+   rank INTEGER                 -- 最终名次
+ );
+
+ 3.2 游戏结束时写入
+
+ 在 CleverRoom.ts 的游戏结束逻辑中调用 saveGameResult(this.state)。
+
+ 3.3 历史记录 API
+
+ GET /api/history              - 最近 20 局游戏列表
+ GET /api/history/:gameId      - 特定游戏详情（含各玩家得分明细）
+
+ 3.4 客户端历史页面
+
+ 新文件 client/app/history/page.tsx：
+ - 对局列表（时间、参与玩家、获胜者、总分）
+ - 点击展开查看各区域得分明细
+
+ ---
+ Phase 4：UI 全面美化（暗色桌游风格）
+
+ 4.1 设计系统
+
+ 主题颜色（Tailwind 配置扩展）：
+ - 背景：深棕色/墨绿色桌面感 #1a1208（游戏桌布）
+ - 卡片：深木色 #2d1f0e（带细微纹理 CSS）
+ - 骰子：各色彩配色保持（黄/蓝/绿/橙/紫）
+ - 强调色：金色 #d4a843（分数、标题）
+ - 字体：考虑引入 Cinzel（标题）+ Inter（正文）
+
+ 4.2 主要 UI 改进
+
+ 大厅页面（client/app/page.tsx → 拆分为独立组件）：
+ - 游戏 logo/标题区域
+ - 房间列表卡片（玻璃拟态效果）
+ - 进入/创建房间动画
+
+ 游戏主界面重构：
+ - 布局改为上方信息栏 + 中央计分板（更大） + 右侧玩家列表
+ - 骰子区域：立体骰子样式（CSS 3D 或 SVG），添加掷骰动画
+ - 计分区域：更清晰的格子样式，填充时有高亮动画
+ - 骰子颜色与计分区域颜色强相关的视觉提示
+
+ 新组件：
+ - client/components/Toast.tsx - 操作反馈通知（成功/错误/信息）
+ - client/components/ConnectionStatus.tsx - 连接状态指示器（右上角）
+ - client/components/ScoreBreakdown.tsx - 游戏结束得分明细弹窗
+ - client/components/DiceComponent.tsx - 独立骰子组件（带动画）
+ - client/components/PlayerCard.tsx - 玩家信息卡片
+
+ 游戏结束页面：
+ - 所有玩家得分展示（柱状比较）
+ - 各区域得分明细表格
+ - "再来一局"和"返回大厅"按钮
+
+ 4.3 动画增强
+
+ - 掷骰子：随机数字闪烁动画（300ms）
+ - 标记格子：勾选动画（scale + checkmark）
+ - 阶段切换：淡入淡出过渡
+ - 奖励获得：floating toast + 图标动画
+ - 玩家回合切换：高亮动画
+
+ ---
+ Phase 5：部署配置（Docker）
+
+ 5.1 服务端 Dockerfile
+
+ server/Dockerfile：
+ FROM node:20-alpine
+ WORKDIR /app
+ COPY package*.json ./
+ COPY server/package*.json ./server/
+ COPY shared/package*.json ./shared/
+ RUN npm ci --workspace=server --workspace=shared
+ COPY server/ ./server/
+ COPY shared/ ./shared/
+ EXPOSE 2567
+ CMD ["npm", "run", "start", "--workspace=server"]
+
+ 5.2 客户端 Dockerfile
+
+ client/Dockerfile（Next.js standalone 模式）：
+ FROM node:20-alpine AS builder
+ WORKDIR /app
+ COPY . .
+ RUN npm ci && npm run build --workspace=client
+ FROM node:20-alpine
+ COPY --from=builder /app/client/.next/standalone ./
+ EXPOSE 3000
+ CMD ["node", "server.js"]
+
+ 5.3 docker-compose.yml
+
+ services:
+   server:
+     build: { context: ., dockerfile: server/Dockerfile }
+     ports: ["2567:2567"]
+     environment:
+       - PORT=2567
+       - CORS_ORIGIN=http://your-domain.com
+       - DB_PATH=/data/clever.db
+     volumes:
+       - db_data:/data
+
+   client:
+     build: { context: ., dockerfile: client/Dockerfile }
+     ports: ["3000:3000"]
+     environment:
+       - NEXT_PUBLIC_SERVER_URL=ws://your-domain.com:2567
+     depends_on: [server]
+
+ volumes:
+   db_data:
+
+ 5.4 Nginx 反向代理配置（可选）
+
+ nginx.conf：
+ - / → Next.js client:3000
+ - /ws → Colyseus server:2567（WebSocket 代理）
+ - /api → Colyseus server:2567（REST API）
+
+ 统一 80/443 端口，避免暴露内部端口。
+
+ ---
+ 关键文件变更清单
+
+ ┌────────────────────────────────────────┬──────┬──────────────────────────────────────────────┐
+ │                  文件                  │ 操作 │                     说明                     │
+ ├────────────────────────────────────────┼──────┼──────────────────────────────────────────────┤
+ │ server/schema/GameState.ts             │ 修改 │ 新增 isConnected, passiveDone,               │
+ │                                        │      │ earnedBonuses, roomName, hostSessionId       │
+ ├────────────────────────────────────────┼──────┼──────────────────────────────────────────────┤
+ │ server/rooms/CleverRoom.ts             │ 修改 │ 完成被动阶段、断线重连、bonus tracking 修复  │
+ ├────────────────────────────────────────┼──────┼──────────────────────────────────────────────┤
+ │ server/index.ts                        │ 修改 │ 新增 rooms/history REST API                  │
+ ├────────────────────────────────────────┼──────┼──────────────────────────────────────────────┤
+ │ server/db/database.ts                  │ 新建 │ SQLite 数据库初始化和操作                    │
+ ├────────────────────────────────────────┼──────┼──────────────────────────────────────────────┤
+ │ server/db/models.ts                    │ 新建 │ 数据库模型和查询函数                         │
+ ├────────────────────────────────────────┼──────┼──────────────────────────────────────────────┤
+ │ client/app/page.tsx                    │ 修改 │ 使用环境变量、重连逻辑                       │
+ ├────────────────────────────────────────┼──────┼──────────────────────────────────────────────┤
+ │ client/app/lobby/page.tsx              │ 新建 │ 房间大厅页面                                 │
+ ├────────────────────────────────────────┼──────┼──────────────────────────────────────────────┤
+ │ client/app/history/page.tsx            │ 新建 │ 对局历史页面                                 │
+ ├────────────────────────────────────────┼──────┼──────────────────────────────────────────────┤
+ │ client/components/Toast.tsx            │ 新建 │ 通知组件                                     │
+ ├────────────────────────────────────────┼──────┼──────────────────────────────────────────────┤
+ │ client/components/ConnectionStatus.tsx │ 新建 │ 连接状态                                     │
+ ├────────────────────────────────────────┼──────┼──────────────────────────────────────────────┤
+ │ client/components/DiceComponent.tsx    │ 新建 │ 骰子动画组件                                 │
+ ├────────────────────────────────────────┼──────┼──────────────────────────────────────────────┤
+ │ client/components/ScoreBreakdown.tsx   │ 新建 │ 得分明细弹窗                                 │
+ ├────────────────────────────────────────┼──────┼──────────────────────────────────────────────┤
+ │ client/components/ScoringAreas.tsx     │ 修改 │ 视觉美化                                     │
+ ├────────────────────────────────────────┼──────┼──────────────────────────────────────────────┤
+ │ client/.env.local                      │ 新建 │ 开发环境变量                                 │
+ ├────────────────────────────────────────┼──────┼──────────────────────────────────────────────┤
+ │ Dockerfile (server & client)           │ 新建 │ Docker 构建文件                              │
+ ├────────────────────────────────────────┼──────┼──────────────────────────────────────────────┤
+ │ docker-compose.yml                     │ 新建 │ 一键启动配置                                 │
+ ├────────────────────────────────────────┼──────┼──────────────────────────────────────────────┤
+ │ nginx.conf                             │ 新建 │ Nginx 反向代理                               │
+ └────────────────────────────────────────┴──────┴──────────────────────────────────────────────┘
+
+ ---
+ 验证方法
+
+ 1. 游戏逻辑： 本地启动两个浏览器窗口，玩一局完整游戏（4轮）验证被动阶段、bonus 触发
+ 2. 断线重连： 游戏进行中关闭客户端标签页，60秒内重新打开，验证重连恢复状态
+ 3. 多桌并发： 创建两个房间，各自进行游戏，验证互不干扰
+ 4. 对局记录： 完成一局后访问 /history 页面，验证记录保存
+ 5. Docker 部署： docker-compose up 后从浏览器访问，验证所有功能正常

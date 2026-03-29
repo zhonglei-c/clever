@@ -5,6 +5,8 @@ export class CleverRoom extends Room<GameStateSchema> {
   maxClients = 6;
 
   private DIE_COLORS = ['yellow', 'blue', 'green', 'orange', 'purple', 'white'];
+  // 替代 (client as any).pendingDieId，类型安全地追踪每个玩家待标记的骰子
+  private pendingDieIds = new Map<string, string>();
 
   onCreate(options: any) {
     this.setState(new GameStateSchema());
@@ -49,7 +51,7 @@ export class CleverRoom extends Room<GameStateSchema> {
       const die = this.state.pool.find(d => d.id === dieId);
       if (die) {
         this.state.phase = "MARKING";
-        (client as any).pendingDieId = dieId;
+        this.pendingDieIds.set(client.sessionId, dieId);
       }
     });
 
@@ -62,7 +64,7 @@ export class CleverRoom extends Room<GameStateSchema> {
       
       if (!isMyTurn && !hasPendingBonus) return;
 
-      const dieId = (client as any).pendingDieId;
+      const dieId = this.pendingDieIds.get(client.sessionId);
       const die = message.isBonus ? null : this.state.pool.find(d => d.id === dieId);
       
       if (!message.isBonus && !die) return;
@@ -87,19 +89,46 @@ export class CleverRoom extends Room<GameStateSchema> {
       }
     });
 
-    this.onMessage("finishPassiveTurn", (client, message: { dieId: string }) => {
+    this.onMessage("selectPassiveDie", (client, message: { dieId: string | null }) => {
       if (this.state.phase !== "PASSIVE_CHOOSING") return;
       const player = this.state.players.get(client.sessionId);
       const activePlayer = this.getActivePlayer();
       if (!player || !activePlayer || player.sessionId === activePlayer.sessionId) return;
+      if (player.passiveDone) return;
 
-      const die = this.state.silverPlatter.find(d => d.id === message.dieId) || 
+      // null 表示跳过，直接标记本玩家完成
+      if (!message.dieId) {
+        player.passiveDone = true;
+        this.checkAndNextTurn();
+        return;
+      }
+
+      const die = this.state.silverPlatter.find(d => d.id === message.dieId) ||
                   this.state.selected.find(d => d.id === message.dieId);
-      
-      if (die) {
-        // 在被动阶段，我们简化处理：玩家选择后直接标记已完成
-        // TODO: 这里如果需要被动玩家也做校验和标记，逻辑会更复杂
-        (player as any)._passive_done = true;
+      if (!die) return;
+
+      // 记录选定的骰子，等待玩家点击格子
+      player.pendingPassiveDieId = message.dieId;
+    });
+
+    this.onMessage("markPassive", (client, message: { area: string, row?: number, col?: number, value?: number }) => {
+      if (this.state.phase !== "PASSIVE_CHOOSING") return;
+      const player = this.state.players.get(client.sessionId);
+      const activePlayer = this.getActivePlayer();
+      if (!player || !activePlayer || player.sessionId === activePlayer.sessionId) return;
+      if (player.passiveDone || !player.pendingPassiveDieId) return;
+
+      const die = this.state.silverPlatter.find(d => d.id === player.pendingPassiveDieId) ||
+                  this.state.selected.find(d => d.id === player.pendingPassiveDieId);
+      if (!die) return;
+
+      const success = this.validateAndMark(player, die, message);
+      if (success) {
+        player.pendingPassiveDieId = "";
+        player.passiveDone = true;
+        this.checkAndApplyBonuses(player);
+        this.calculateTotalScore(player);
+        console.log(`[Clever] Passive player ${player.name} marked ${message.area}`);
         this.checkAndNextTurn();
       }
     });
@@ -108,12 +137,16 @@ export class CleverRoom extends Room<GameStateSchema> {
   private checkAndNextTurn() {
     const players = Array.from(this.state.players.values());
     const activePlayer = this.getActivePlayer();
-    const allPassiveDone = players.every(p => 
-      p.sessionId === activePlayer.sessionId || (p as any)._passive_done
+    // 离线玩家无需等待其完成被动阶段
+    const allPassiveDone = players.every(p =>
+      p.sessionId === activePlayer.sessionId || p.passiveDone || !p.isConnected
     );
 
     if (allPassiveDone) {
-      players.forEach(p => (p as any)._passive_done = false);
+      players.forEach(p => {
+        p.passiveDone = false;
+        p.pendingPassiveDieId = "";
+      });
 
       this.state.activePlayerIndex++;
       if (this.state.activePlayerIndex >= this.state.players.size) {
@@ -126,6 +159,23 @@ export class CleverRoom extends Room<GameStateSchema> {
       } else {
         this.startNewTurn();
       }
+    }
+  }
+
+  // 当某玩家超时离开后，推进卡住的游戏状态
+  private advanceTurnIfDisconnected(sessionId: string) {
+    const activePlayer = this.getActivePlayer();
+    if (!activePlayer) return;
+
+    if (activePlayer.sessionId === sessionId) {
+      // 主动玩家掉线，跳过其回合
+      console.log(`[Clever] Active player disconnected, skipping turn`);
+      if (this.state.phase === 'WAITING') return;
+      this.state.phase = "PASSIVE_CHOOSING";
+      this.checkAndNextTurn();
+    } else if (this.state.phase === "PASSIVE_CHOOSING") {
+      // 被动玩家掉线，重新检查是否可以推进
+      this.checkAndNextTurn();
     }
   }
 
@@ -219,40 +269,42 @@ export class CleverRoom extends Room<GameStateSchema> {
   private checkAndApplyBonuses(player: PlayerState) {
     const s = player.sheet;
     const b = player.bonuses;
-    const p = player as any;
+    const earned = player.earnedBonuses;
 
-    if (s.yellow.row0[0] && s.yellow.row1[0] && s.yellow.row2[0] && !p._y_c0) { this.addBonus(player, 'blue_x'); p._y_c0 = true; }
-    if (s.yellow.row0[1] && s.yellow.row1[1] && s.yellow.row3[1] && !p._y_c1) { this.addBonus(player, 'green_x'); p._y_c1 = true; }
-    if (s.yellow.row1[2] && s.yellow.row2[2] && s.yellow.row3[2] && !p._y_c2) { this.addBonus(player, 'orange_6'); p._y_c2 = true; }
-    if (s.yellow.row0[3] && s.yellow.row2[3] && s.yellow.row3[3] && !p._y_c3) { this.addBonus(player, 'blue_x'); p._y_c3 = true; }
-    if (s.yellow.row1[0] && s.yellow.row1[1] && s.yellow.row1[3] && !p._y_r1) { b.foxes++; p._y_r1 = true; }
+    const has = (key: string) => earned.includes(key as never);
+
+    if (s.yellow.row0[0] && s.yellow.row1[0] && s.yellow.row2[0] && !has('y_c0')) { this.addBonus(player, 'blue_x'); earned.push('y_c0'); }
+    if (s.yellow.row0[1] && s.yellow.row1[1] && s.yellow.row3[1] && !has('y_c1')) { this.addBonus(player, 'green_x'); earned.push('y_c1'); }
+    if (s.yellow.row1[2] && s.yellow.row2[2] && s.yellow.row3[2] && !has('y_c2')) { this.addBonus(player, 'orange_6'); earned.push('y_c2'); }
+    if (s.yellow.row0[3] && s.yellow.row2[3] && s.yellow.row3[3] && !has('y_c3')) { this.addBonus(player, 'blue_x'); earned.push('y_c3'); }
+    if (s.yellow.row1[0] && s.yellow.row1[1] && s.yellow.row1[3] && !has('y_r1')) { b.foxes++; earned.push('y_r1'); }
 
     const bCount = s.blue.marks.filter(m => m).length;
-    if (bCount >= 2 && !p._b_b2) { b.rerolls++; p._b_b2 = true; }
-    if (bCount >= 3 && !p._b_b3) { this.addBonus(player, 'orange_6'); p._b_b3 = true; }
-    if (bCount >= 5 && !p._b_b5) { this.addBonus(player, 'yellow_x'); p._b_b5 = true; }
-    if (bCount >= 7 && !p._b_b7) { b.foxes++; p._b_b7 = true; }
-    if (bCount >= 9 && !p._b_b9) { this.addBonus(player, 'green_x'); p._b_b9 = true; }
-    if (bCount >= 11 && !p._b_b11) { this.addBonus(player, 'purple_6'); p._b_b11 = true; }
+    if (bCount >= 2  && !has('b_b2'))  { b.rerolls++;                          earned.push('b_b2'); }
+    if (bCount >= 3  && !has('b_b3'))  { this.addBonus(player, 'orange_6');    earned.push('b_b3'); }
+    if (bCount >= 5  && !has('b_b5'))  { this.addBonus(player, 'yellow_x');    earned.push('b_b5'); }
+    if (bCount >= 7  && !has('b_b7'))  { b.foxes++;                            earned.push('b_b7'); }
+    if (bCount >= 9  && !has('b_b9'))  { this.addBonus(player, 'green_x');     earned.push('b_b9'); }
+    if (bCount >= 11 && !has('b_b11')) { this.addBonus(player, 'purple_6');    earned.push('b_b11'); }
 
-    if (s.green.marks[3] && !p._g_b3) { b.plusOnes++; p._g_b3 = true; }
-    if (s.green.marks[5] && !p._g_b6) { this.addBonus(player, 'blue_x'); p._g_b6 = true; }
-    if (s.green.marks[6] && !p._g_b7) { b.foxes++; p._g_b7 = true; }
-    if (s.green.marks[8] && !p._g_b9) { this.addBonus(player, 'purple_6'); p._g_b9 = true; }
+    if (s.green.marks[3] && !has('g_b3')) { b.plusOnes++;                       earned.push('g_b3'); }
+    if (s.green.marks[5] && !has('g_b6')) { this.addBonus(player, 'blue_x');    earned.push('g_b6'); }
+    if (s.green.marks[6] && !has('g_b7')) { b.foxes++;                          earned.push('g_b7'); }
+    if (s.green.marks[8] && !has('g_b9')) { this.addBonus(player, 'purple_6');  earned.push('g_b9'); }
 
-    if (s.orange.values[2] > 0 && !p._o_b3) { b.rerolls++; p._o_b3 = true; }
-    if (s.orange.values[4] > 0 && !p._o_b5) { this.addBonus(player, 'yellow_x'); p._o_b5 = true; }
-    if (s.orange.values[5] > 0 && !p._o_b6) { b.plusOnes++; p._o_b6 = true; }
-    if (s.orange.values[7] > 0 && !p._o_b8) { b.foxes++; p._o_b8 = true; }
-    if (s.orange.values[8] > 0 && !p._o_b9) { this.addBonus(player, 'purple_6'); p._o_b9 = true; }
+    if (s.orange.values[2] > 0 && !has('o_b3')) { b.rerolls++;                       earned.push('o_b3'); }
+    if (s.orange.values[4] > 0 && !has('o_b5')) { this.addBonus(player, 'yellow_x'); earned.push('o_b5'); }
+    if (s.orange.values[5] > 0 && !has('o_b6')) { b.plusOnes++;                      earned.push('o_b6'); }
+    if (s.orange.values[7] > 0 && !has('o_b8')) { b.foxes++;                         earned.push('o_b8'); }
+    if (s.orange.values[8] > 0 && !has('o_b9')) { this.addBonus(player, 'purple_6'); earned.push('o_b9'); }
 
-    if (s.purple.values[2] > 0 && !p._p_b3) { b.rerolls++; p._p_b3 = true; }
-    if (s.purple.values[3] > 0 && !p._p_b4) { this.addBonus(player, 'blue_x'); p._p_b4 = true; }
-    if (s.purple.values[5] > 0 && !p._p_b6) { b.plusOnes++; p._p_b6 = true; }
-    if (s.purple.values[6] > 0 && !p._p_b7) { this.addBonus(player, 'yellow_x'); p._p_b7 = true; }
-    if (s.purple.values[7] > 0 && !p._p_b8) { b.foxes++; p._p_b8 = true; }
-    if (s.purple.values[8] > 0 && !p._p_b9) { this.addBonus(player, 'green_x'); p._p_b9 = true; }
-    if (s.purple.values[10] > 0 && !p._p_b11) { b.plusOnes++; p._p_b11 = true; }
+    if (s.purple.values[2]  > 0 && !has('p_b3'))  { b.rerolls++;                       earned.push('p_b3'); }
+    if (s.purple.values[3]  > 0 && !has('p_b4'))  { this.addBonus(player, 'blue_x');   earned.push('p_b4'); }
+    if (s.purple.values[5]  > 0 && !has('p_b6'))  { b.plusOnes++;                      earned.push('p_b6'); }
+    if (s.purple.values[6]  > 0 && !has('p_b7'))  { this.addBonus(player, 'yellow_x'); earned.push('p_b7'); }
+    if (s.purple.values[7]  > 0 && !has('p_b8'))  { b.foxes++;                         earned.push('p_b8'); }
+    if (s.purple.values[8]  > 0 && !has('p_b9'))  { this.addBonus(player, 'green_x');  earned.push('p_b9'); }
+    if (s.purple.values[10] > 0 && !has('p_b11')) { b.plusOnes++;                      earned.push('p_b11'); }
   }
 
   private addBonus(player: PlayerState, type: string) {
@@ -346,8 +398,40 @@ export class CleverRoom extends Room<GameStateSchema> {
     }
   }
 
-  onLeave(client: Client, consented: boolean) {
-    this.state.players.delete(client.sessionId);
+  async onLeave(client: Client, consented: boolean) {
+    const player = this.state.players.get(client.sessionId);
+    if (player) player.isConnected = false;
+    this.pendingDieIds.delete(client.sessionId);
+
+    if (!consented) {
+      console.log(`[Clever] Player ${player?.name} disconnected, waiting 60s for reconnect...`);
+      try {
+        await this.allowReconnection(client, 60);
+        if (player) {
+          player.isConnected = true;
+          console.log(`[Clever] Player ${player.name} reconnected!`);
+        }
+        return;
+      } catch {
+        console.log(`[Clever] Player ${player?.name} timed out, removing from game`);
+      }
+    }
+
+    // 超时或主动离开：清理并推进游戏
+    const sessionId = client.sessionId;
+    this.state.players.delete(sessionId);
+
+    // 修正 activePlayerIndex 防止越界
+    const playerCount = this.state.players.size;
+    if (playerCount > 0 && this.state.activePlayerIndex >= playerCount) {
+      this.state.activePlayerIndex = 0;
+    }
+
+    if (playerCount === 0) {
+      this.state.phase = "WAITING";
+    } else {
+      this.advanceTurnIfDisconnected(sessionId);
+    }
   }
 
   onDispose() {}
