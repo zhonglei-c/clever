@@ -1,0 +1,4 @@
+interface:
+  display_name: "Clever Project"
+  short_description: "Project workflow and domain guide"
+  default_prompt: "Use $clever-project to continue development in the Clever browser game repo."

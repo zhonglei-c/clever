@@ -39,3 +39,15 @@ npm run dev:web
 npm run typecheck
 npm run build
 ```
+
+项目内置 skill：
+
+```bash
+./project-skills/clever-project/scripts/link-into-codex-home.sh
+```
+
+说明：
+
+- 项目专属 skill 源码放在 `project-skills/clever-project`
+- 换设备后，在仓库根目录执行上面的脚本，会把这个 skill 链接到 `${CODEX_HOME:-$HOME/.codex}/skills`
+- 这样 skill 跟着仓库走，但 Codex 仍能按本机默认位置自动发现它
