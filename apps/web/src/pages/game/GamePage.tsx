@@ -41,6 +41,67 @@ type SelectedIntent =
       bonusIndex: number;
     };
 
+function getPreferredRulesLanguage() {
+  if (typeof window === "undefined") {
+    return "zh";
+  }
+
+  const saved = window.localStorage.getItem("clever-rules-language");
+  return saved === "en" ? "en" : "zh";
+}
+
+function getRulesHref(language: string, sectionId?: string) {
+  const hash = sectionId ? `#${sectionId}` : "";
+  return `/rules?lang=${language}${hash}`;
+}
+
+function getRulesSectionForPhase(phase: GameStateSnapshot["phase"] | undefined) {
+  switch (phase) {
+    case "awaiting_active_roll":
+    case "awaiting_active_selection":
+    case "awaiting_turn_end":
+      return "turn-flow";
+    case "awaiting_passive_picks":
+      return "silver";
+    case "awaiting_bonus_resolution":
+      return "bonuses";
+    case "finished":
+      return "scoring";
+    default:
+      return "turn-flow";
+  }
+}
+
+function getContextualRuleLinks(phase: GameStateSnapshot["phase"] | undefined) {
+  switch (phase) {
+    case "awaiting_active_roll":
+    case "awaiting_active_selection":
+      return [
+        { id: "turn-flow", label: "主动阶段" },
+        { id: "zones", label: "颜色区规则" }
+      ];
+    case "awaiting_passive_picks":
+      return [
+        { id: "silver", label: "银盘与被动选择" },
+        { id: "zones", label: "颜色区规则" }
+      ];
+    case "awaiting_bonus_resolution":
+      return [
+        { id: "bonuses", label: "奖励与连锁" },
+        { id: "zones", label: "颜色区规则" }
+      ];
+    case "finished":
+      return [
+        { id: "scoring", label: "计分与终局" }
+      ];
+    default:
+      return [
+        { id: "turn-flow", label: "回合流程" },
+        { id: "tips", label: "数字版操作提示" }
+      ];
+  }
+}
+
 export function GamePage() {
   const { roomId } = useParams();
   const normalizedRoomId = roomId ?? "";
@@ -56,6 +117,7 @@ export function GamePage() {
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [socketConnected, setSocketConnected] = useState(() => getRealtimeSocket().connected);
   const [selectedIntent, setSelectedIntent] = useState<SelectedIntent | null>(null);
+  const [rulesLanguage] = useState(getPreferredRulesLanguage);
 
   useEffect(() => {
     if (!normalizedRoomId) {
@@ -153,6 +215,7 @@ export function GamePage() {
     () => (gameState && mySheet ? buildSheetSelection(selectedIntent, gameState, mySheet) : emptySheetSelection()),
     [gameState, mySheet, selectedIntent],
   );
+  const selectedIntentHasLegalTarget = hasAnyLegalTarget(sheetSelection);
   const actionPrompt = getActionPrompt({
     room,
     gameState,
@@ -160,9 +223,13 @@ export function GamePage() {
     currentPlayerNickname: currentPlayer?.nickname ?? nickname,
     activePlayerNickname: activePlayer?.nickname ?? null,
     passiveSelectionStatus: passiveSelection?.status ?? null,
-    hasPendingBonus: Boolean(pendingBonusResolution)
+    hasPendingBonus: Boolean(pendingBonusResolution),
+    selectedIntent,
+    selectedIntentHasLegalTarget
   });
   const selectionSummary = describeSelectedIntent(selectedIntent);
+  const phaseRulesSection = getRulesSectionForPhase(gameState?.phase);
+  const contextualRuleLinks = getContextualRuleLinks(gameState?.phase);
 
   const canRoll = Boolean(
     room?.status === "in_game" &&
@@ -343,6 +410,16 @@ export function GamePage() {
         <div>
           <span className="status-label">阶段</span>
           <strong>{gameState?.phase ?? "等待同步"}</strong>
+          <div className="status-subaction">
+            <a
+              className="inline-action-link inline-action-link-small"
+              href={getRulesHref(rulesLanguage, phaseRulesSection)}
+              target="_blank"
+              rel="noreferrer"
+            >
+              查看本阶段规则
+            </a>
+          </div>
         </div>
         <div>
           <span className="status-label">轮次</span>
@@ -351,6 +428,17 @@ export function GamePage() {
         <div>
           <span className="status-label">当前玩家</span>
           <strong>{activePlayer?.nickname ?? gameState?.currentPlayerId ?? "待开始"}</strong>
+        </div>
+        <div>
+          <span className="status-label">规则书</span>
+          <a
+            className="inline-action-link"
+            href={getRulesHref(rulesLanguage)}
+            target="_blank"
+            rel="noreferrer"
+          >
+            快速打开
+          </a>
         </div>
       </section>
 
@@ -370,12 +458,35 @@ export function GamePage() {
           <div className="info-banner">
             <strong>当前提示：</strong> {actionPrompt}
           </div>
+          <div className="rule-link-row">
+            {contextualRuleLinks.map((item) => (
+              <a
+                key={item.id}
+                className="rule-jump-link"
+                href={getRulesHref(rulesLanguage, item.id)}
+                target="_blank"
+                rel="noreferrer"
+              >
+                {item.label}
+              </a>
+            ))}
+          </div>
           {selectionSummary ? (
             <div className="info-banner selection-banner">
               <strong>当前已选：</strong> {selectionSummary}
               <button className="micro-button" onClick={() => setSelectedIntent(null)}>
                 取消选择
               </button>
+            </div>
+          ) : null}
+          {selectedIntent && !selectedIntentHasLegalTarget ? (
+            <div className="error-banner">
+              当前选中的对象在所有允许区域里都没有合法落点。
+              {selectedIntent.kind === "passive"
+                ? " 这是被动阶段时，可以改选别的银盘骰子，或者直接跳过。"
+                : selectedIntent.kind === "active"
+                  ? " 这是主动阶段时，请取消当前选择并改选别的骰子。"
+                  : " 请取消当前奖励选择，改用其他可解析的奖励或等待前一动作调整。"}
             </div>
           ) : null}
           <div className="score-sheet-layout">
@@ -459,7 +570,24 @@ export function GamePage() {
                         gameState.currentPlayerId === currentPlayerId
                           ? "die-card-actionable"
                           : ""
+                      } ${
+                        mySheet && gameState
+                          ? isDieChoicePlayable(
+                              { kind: "active", die },
+                              gameState,
+                              mySheet,
+                            )
+                            ? ""
+                            : "die-card-blocked"
+                          : ""
                       }`}
+                      title={
+                        mySheet && gameState
+                          ? isDieChoicePlayable({ kind: "active", die }, gameState, mySheet)
+                            ? "这个骰子当前至少有一个合法落点。"
+                            : "这个骰子当前没有合法落点，选了也无法继续。"
+                          : ""
+                      }
                       onClick={() => setSelectedIntent({ kind: "active", die })}
                       disabled={
                         !(
@@ -490,7 +618,24 @@ export function GamePage() {
                         gameState?.phase === "awaiting_passive_picks" && passiveSelection?.status === "pending"
                           ? "die-card-actionable"
                           : ""
+                      } ${
+                        mySheet && gameState
+                          ? isDieChoicePlayable(
+                              { kind: "passive", die },
+                              gameState,
+                              mySheet,
+                            )
+                            ? ""
+                            : "die-card-blocked"
+                          : ""
                       }`}
+                      title={
+                        mySheet && gameState
+                          ? isDieChoicePlayable({ kind: "passive", die }, gameState, mySheet)
+                            ? "这个银盘骰子当前至少有一个合法落点。"
+                            : "这个银盘骰子当前没有合法落点，可以考虑换一个或跳过。"
+                          : ""
+                      }
                       onClick={() => setSelectedIntent({ kind: "passive", die })}
                       disabled={
                         !(gameState?.phase === "awaiting_passive_picks" && passiveSelection?.status === "pending")
@@ -977,6 +1122,16 @@ function getZoneHint(
   }
 }
 
+function hasAnyLegalTarget(selection: SheetSelectionState) {
+  return (
+    selection.activeYellowCellIds.size > 0 ||
+    selection.activeBlueCellIds.size > 0 ||
+    selection.activeGreen ||
+    selection.activeOrange ||
+    selection.activePurple
+  );
+}
+
 function buildSheetSelection(
   intent: SelectedIntent | null,
   gameState: GameStateSnapshot,
@@ -1021,6 +1176,14 @@ function buildSheetSelection(
     activeOrange: zoneIds.has("orange"),
     activePurple: zoneIds.has("purple")
   };
+}
+
+function isDieChoicePlayable(
+  intent: SelectedIntent,
+  gameState: GameStateSnapshot,
+  player: PlayerSheetSnapshot,
+) {
+  return hasAnyLegalTarget(buildSheetSelection(intent, gameState, player));
 }
 
 function getPlacementsForIntent(intent: SelectedIntent): SheetPlacement[] {
@@ -1231,6 +1394,8 @@ function getActionPrompt(args: {
   activePlayerNickname: string | null;
   passiveSelectionStatus: "pending" | "picked" | "skipped" | null;
   hasPendingBonus: boolean;
+  selectedIntent: SelectedIntent | null;
+  selectedIntentHasLegalTarget: boolean;
 }) {
   const {
     room,
@@ -1239,7 +1404,9 @@ function getActionPrompt(args: {
     currentPlayerNickname,
     activePlayerNickname,
     passiveSelectionStatus,
-    hasPendingBonus
+    hasPendingBonus,
+    selectedIntent,
+    selectedIntentHasLegalTarget
   } = args;
 
   if (!room || room.status !== "in_game" || !gameState) {
@@ -1248,6 +1415,14 @@ function getActionPrompt(args: {
 
   if (hasPendingBonus) {
     return `${currentPlayerNickname} 现在需要先解析奖励，完成后状态机会回到上一个阶段。`;
+  }
+
+  if (selectedIntent && !selectedIntentHasLegalTarget) {
+    return selectedIntent.kind === "passive"
+      ? "当前选中的银盘骰子没有任何合法落点。请改选别的骰子，或直接跳过。"
+      : selectedIntent.kind === "active"
+        ? "当前选中的主动骰子没有任何合法落点。请取消后改选别的骰子。"
+        : "当前选中的奖励没有任何合法解析位置。请取消后检查其他可处理路径。";
   }
 
   switch (gameState.phase) {
