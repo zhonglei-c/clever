@@ -24,3 +24,18 @@
 - 先完成可部署到小型服务器上的多人房间制 MVP
 - 支持多桌并发，每桌 `1-6` 人
 - 保留原作计分纸视觉语言和玩法手感
+
+快速启动：
+
+```bash
+npm install
+npm run dev:server
+npm run dev:web
+```
+
+基础校验：
+
+```bash
+npm run typecheck
+npm run build
+```

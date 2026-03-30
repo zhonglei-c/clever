@@ -1,0 +1,17 @@
+{
+  "name": "clever-browser-game",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "npm@10.9.7",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:web": "npm --workspace @clever/web run dev",
+    "dev:server": "npm --workspace @clever/server run dev",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present"
+  }
+}

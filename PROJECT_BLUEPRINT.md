@@ -61,6 +61,11 @@
 - `Docker Compose` 部署
 - `Caddy` 或 `Nginx` 反向代理
 
+### 工作区
+
+- 根仓库使用 `npm workspaces`
+- 所有长期目标以根目录 Markdown 文档为准
+
 ## 5. 架构原则
 
 项目拆成三个核心层：
