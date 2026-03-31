@@ -48,14 +48,24 @@ export function buildFinalStandings(players: PlayerSheetSnapshot[]): FinalStandi
     playerId: player.playerId,
     breakdown: scorePlayerSheet(player.sheet)
   }));
-  const sorted = [...scored].sort((left, right) => right.breakdown.total - left.breakdown.total);
+  const sorted = [...scored].sort(compareStandingEntries);
 
-  return sorted.map((entry, index) => ({
-    playerId: entry.playerId,
-    rank: index + 1,
-    totalScore: entry.breakdown.total,
-    breakdown: entry.breakdown
-  }));
+  return sorted.reduce<FinalStanding[]>((standings, entry, index) => {
+    const previousEntry = sorted[index - 1];
+    const previousStanding = standings[index - 1];
+    const rank =
+      previousEntry && previousStanding && compareStandingEntries(previousEntry, entry) === 0
+        ? previousStanding.rank
+        : index + 1;
+
+    standings.push({
+      playerId: entry.playerId,
+      rank,
+      totalScore: entry.breakdown.total,
+      breakdown: entry.breakdown
+    });
+    return standings;
+  }, []);
 }
 
 function scoreYellow(sheet: PlayerSheetState) {
@@ -63,4 +73,31 @@ function scoreYellow(sheet: PlayerSheetState) {
     const completed = column.every((cellId) => sheet.yellow.markedCellIds.includes(cellId));
     return completed ? sum + YELLOW_COLUMN_SCORES[index] : sum;
   }, 0);
+}
+
+function compareStandingEntries(
+  left: { breakdown: PlayerScoreBreakdown },
+  right: { breakdown: PlayerScoreBreakdown },
+) {
+  const totalDiff = right.breakdown.total - left.breakdown.total;
+  if (totalDiff !== 0) {
+    return totalDiff;
+  }
+
+  const singleAreaDiff = getHighestColoredAreaScore(right.breakdown) - getHighestColoredAreaScore(left.breakdown);
+  if (singleAreaDiff !== 0) {
+    return singleAreaDiff;
+  }
+
+  return 0;
+}
+
+function getHighestColoredAreaScore(breakdown: PlayerScoreBreakdown) {
+  return Math.max(
+    breakdown.yellow,
+    breakdown.blue,
+    breakdown.green,
+    breakdown.orange,
+    breakdown.purple,
+  );
 }

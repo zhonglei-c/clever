@@ -7,7 +7,7 @@ export function getTotalRoundsForPlayerCount(playerCount: number) {
     return 6;
   }
 
-  if (playerCount <= 4) {
+  if (playerCount === 3) {
     return 5;
   }
 

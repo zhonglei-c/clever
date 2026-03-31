@@ -70,6 +70,7 @@ export interface PurpleZoneState {
 
 export interface PlayerResources {
   wildMarks: number;
+  rerolls: number;
   extraDice: number;
   foxes: number;
 }
@@ -81,6 +82,16 @@ export interface WildMarkBonus {
 
 export interface ExtraDieBonus {
   type: "extra-die";
+  source: string;
+}
+
+export interface FoxBonus {
+  type: "fox";
+  source: string;
+}
+
+export interface RerollBonus {
+  type: "reroll";
   source: string;
 }
 
@@ -106,6 +117,8 @@ export interface PurpleNumberBonus {
 export type PendingSheetBonus =
   | WildMarkBonus
   | ExtraDieBonus
+  | FoxBonus
+  | RerollBonus
   | NumberMarkBonus
   | OrangeNumberBonus
   | PurpleNumberBonus;
@@ -188,6 +201,39 @@ const YELLOW_DIAGONAL_BONUS: WildMarkBonus = {
   type: "wild-mark",
   source: "yellow-diagonal"
 };
+const GREEN_PROGRESS_BONUSES: Partial<Record<number, PendingSheetBonus[]>> = {
+  4: [
+    {
+      type: "extra-die",
+      source: "green-step-4"
+    }
+  ],
+  7: [
+    {
+      type: "wild-mark",
+      source: "green-step-7"
+    }
+  ],
+  8: [
+    {
+      type: "fox",
+      source: "green-step-8"
+    }
+  ],
+  10: [
+    {
+      type: "purple-number",
+      value: 6,
+      source: "green-step-10"
+    }
+  ],
+  11: [
+    {
+      type: "reroll",
+      source: "green-step-11"
+    }
+  ]
+};
 const BLUE_ROW_BONUSES: Record<1 | 2 | 3 | 4, PendingSheetBonus> = {
   1: {
     type: "extra-die",
@@ -207,6 +253,96 @@ const BLUE_ROW_BONUSES: Record<1 | 2 | 3 | 4, PendingSheetBonus> = {
     type: "extra-die",
     source: "blue-row-4"
   }
+};
+const ORANGE_PROGRESS_BONUSES: Partial<Record<number, PendingSheetBonus[]>> = {
+  3: [
+    {
+      type: "reroll",
+      source: "orange-step-3"
+    }
+  ],
+  5: [
+    {
+      type: "wild-mark",
+      source: "orange-step-5"
+    }
+  ],
+  6: [
+    {
+      type: "extra-die",
+      source: "orange-step-6"
+    }
+  ],
+  8: [
+    {
+      type: "fox",
+      source: "orange-step-8"
+    }
+  ],
+  10: [
+    {
+      type: "purple-number",
+      value: 6,
+      source: "orange-step-10"
+    }
+  ]
+};
+const PURPLE_PROGRESS_BONUSES: Partial<Record<number, PendingSheetBonus[]>> = {
+  3: [
+    {
+      type: "reroll",
+      source: "purple-step-3"
+    }
+  ],
+  4: [
+    {
+      type: "wild-mark",
+      source: "purple-step-4"
+    }
+  ],
+  5: [
+    {
+      type: "extra-die",
+      source: "purple-step-5"
+    }
+  ],
+  6: [
+    {
+      type: "wild-mark",
+      source: "purple-step-6"
+    }
+  ],
+  7: [
+    {
+      type: "fox",
+      source: "purple-step-7"
+    }
+  ],
+  8: [
+    {
+      type: "reroll",
+      source: "purple-step-8"
+    }
+  ],
+  9: [
+    {
+      type: "wild-mark",
+      source: "purple-step-9"
+    }
+  ],
+  10: [
+    {
+      type: "orange-number",
+      value: 6,
+      source: "purple-step-10"
+    }
+  ],
+  11: [
+    {
+      type: "extra-die",
+      source: "purple-step-11"
+    }
+  ]
 };
 const BLUE_COLUMN_BONUSES: Record<1 | 2 | 3 | 4, NumberMarkBonus> = {
   1: {
@@ -235,18 +371,18 @@ const BLUE_COLUMN_BONUSES: Record<1 | 2 | 3 | 4, NumberMarkBonus> = {
   }
 };
 const YELLOW_CELLS: YellowCellDefinition[] = [
-  { id: "y-r1c1", row: 1, column: 1, value: 2, onDiagonal: true },
-  { id: "y-r1c2", row: 1, column: 2, value: 1, onDiagonal: false },
+  { id: "y-r1c1", row: 1, column: 1, value: 3, onDiagonal: true },
+  { id: "y-r1c2", row: 1, column: 2, value: 6, onDiagonal: false },
   { id: "y-r1c3", row: 1, column: 3, value: 5, onDiagonal: false },
-  { id: "y-r1c4", row: 1, column: 4, value: 4, onDiagonal: false },
+  { id: "y-r1c4", row: 1, column: 4, value: 2, onDiagonal: false },
   { id: "y-r2c1", row: 2, column: 1, value: 1, onDiagonal: false },
-  { id: "y-r2c2", row: 2, column: 2, value: 2, onDiagonal: true },
-  { id: "y-r2c3", row: 2, column: 3, value: 4, onDiagonal: false },
-  { id: "y-r2c4", row: 2, column: 4, value: 3, onDiagonal: false },
-  { id: "y-r3c1", row: 3, column: 1, value: 5, onDiagonal: false },
-  { id: "y-r3c2", row: 3, column: 2, value: 6, onDiagonal: false },
-  { id: "y-r3c3", row: 3, column: 3, value: 6, onDiagonal: true },
-  { id: "y-r3c4", row: 3, column: 4, value: 3, onDiagonal: false }
+  { id: "y-r2c2", row: 2, column: 2, value: 5, onDiagonal: true },
+  { id: "y-r2c3", row: 2, column: 3, value: 1, onDiagonal: false },
+  { id: "y-r2c4", row: 2, column: 4, value: 2, onDiagonal: false },
+  { id: "y-r3c1", row: 3, column: 1, value: 4, onDiagonal: false },
+  { id: "y-r3c2", row: 3, column: 2, value: 3, onDiagonal: false },
+  { id: "y-r3c3", row: 3, column: 3, value: 4, onDiagonal: true },
+  { id: "y-r3c4", row: 3, column: 4, value: 6, onDiagonal: false }
 ];
 const BLUE_CELLS: BlueCellDefinition[] = [
   { id: "b-r1c1", row: 1, column: 1, sum: 2 },
@@ -297,6 +433,7 @@ export function createEmptyPlayerSheet(): PlayerSheetState {
     },
     resources: {
       wildMarks: 0,
+      rerolls: 0,
       extraDice: 0,
       foxes: 0
     },
@@ -346,6 +483,22 @@ export function resolvePendingBonus(
   if (bonus.type === "extra-die") {
     return {
       sheet: removePendingBonusWithResource(sheet, bonusIndex, "extraDice"),
+      usedValue: 0,
+      triggeredBonuses: []
+    };
+  }
+
+  if (bonus.type === "fox") {
+    return {
+      sheet: removePendingBonusWithResource(sheet, bonusIndex, "foxes"),
+      usedValue: 0,
+      triggeredBonuses: []
+    };
+  }
+
+  if (bonus.type === "reroll") {
+    return {
+      sheet: removePendingBonusWithResource(sheet, bonusIndex, "rerolls"),
       usedValue: 0,
       triggeredBonuses: []
     };
@@ -501,8 +654,8 @@ function applyGreenPlacement(
 
   const threshold = GREEN_THRESHOLDS[nextIndex];
   invariant(
-    context.die.value > threshold,
-    `Green area requires a value greater than ${threshold}.`,
+    context.die.value >= threshold,
+    `Green area requires a value of at least ${threshold}.`,
   );
 
   return {
@@ -513,7 +666,7 @@ function applyGreenPlacement(
       }
     },
     usedValue: context.die.value,
-    triggeredBonuses: []
+    triggeredBonuses: getLinearTrackBonuses(GREEN_PROGRESS_BONUSES, nextIndex + 1)
   };
 }
 
@@ -535,7 +688,7 @@ function applyOrangePlacement(
       }
     },
     usedValue: context.die.value,
-    triggeredBonuses: []
+    triggeredBonuses: getLinearTrackBonuses(ORANGE_PROGRESS_BONUSES, sheet.orange.values.length + 1)
   };
 }
 
@@ -566,7 +719,7 @@ function applyPurplePlacement(
       }
     },
     usedValue: context.die.value,
-    triggeredBonuses: []
+    triggeredBonuses: getLinearTrackBonuses(PURPLE_PROGRESS_BONUSES, sheet.purple.values.length + 1)
   };
 }
 
@@ -836,6 +989,13 @@ function countYellowValues(markedCellIds: YellowCellId[]) {
   }
 
   return counts;
+}
+
+function getLinearTrackBonuses(
+  rewardMap: Partial<Record<number, PendingSheetBonus[]>>,
+  progress: number,
+) {
+  return rewardMap[progress] ?? [];
 }
 
 function assertNever(_: never): never {

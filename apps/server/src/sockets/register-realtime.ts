@@ -7,14 +7,18 @@ import type {
   SheetPlacement
 } from "@clever/game-core";
 import {
-  createRoomSchema,
-  type CreateRoomInput,
-  type GameAdvanceTurnEvent,
-  type GamePassivePickEvent,
-  type GamePassiveSkipEvent,
-  type GameResolveBonusEvent,
-  type GameRollEvent,
-  type GameSelectDieEvent,
+    createRoomSchema,
+    type CreateRoomInput,
+    type GameActiveSkipEvent,
+    type GameAdvanceTurnEvent,
+    type GamePassExtraDieEvent,
+    type GamePassivePickEvent,
+    type GamePassiveSkipEvent,
+    type GameResolveBonusEvent,
+    type GameRollEvent,
+    type GameSelectDieEvent,
+    type GameUseExtraDieEvent,
+    type GameUseRerollEvent,
   type RoomCreateEvent,
   type RoomErrorEvent,
   type RoomJoinEvent,
@@ -130,6 +134,20 @@ export function registerRealtime(
       }
     });
 
+    socket.on("game:active-skip", (payload: GameActiveSkipEvent) => {
+      try {
+        const membership = requireMembership(context, payload.roomId, socket);
+        const next = context.gameService.applyAction(payload.roomId, {
+          type: "active-skip",
+          playerId: membership.player.id
+        });
+        syncFinishedStateIfNeeded(context, next.state);
+        emitRoomState(io, context, payload.roomId);
+      } catch (error) {
+        emitSocketError(socket, error);
+      }
+    });
+
     socket.on("game:passive-pick", (payload: GamePassivePickEvent) => {
       try {
         const membership = requireMembership(context, payload.roomId, socket);
@@ -186,6 +204,50 @@ export function registerRealtime(
 
         const next = context.gameService.applyAction(payload.roomId, {
           type: "advance-turn"
+        });
+        syncFinishedStateIfNeeded(context, next.state);
+        emitRoomState(io, context, payload.roomId);
+      } catch (error) {
+        emitSocketError(socket, error);
+      }
+    });
+
+    socket.on("game:use-reroll", (payload: GameUseRerollEvent) => {
+      try {
+        const membership = requireMembership(context, payload.roomId, socket);
+        const next = context.gameService.applyAction(payload.roomId, {
+          type: "use-reroll",
+          playerId: membership.player.id
+        });
+        syncFinishedStateIfNeeded(context, next.state);
+        emitRoomState(io, context, payload.roomId);
+      } catch (error) {
+        emitSocketError(socket, error);
+      }
+    });
+
+    socket.on("game:use-extra-die", (payload: GameUseExtraDieEvent) => {
+      try {
+        const membership = requireMembership(context, payload.roomId, socket);
+        const next = context.gameService.applyAction(payload.roomId, {
+          type: "extra-die-pick",
+          playerId: membership.player.id,
+          dieId: payload.dieId,
+          placement: payload.placement as SheetPlacement
+        });
+        syncFinishedStateIfNeeded(context, next.state);
+        emitRoomState(io, context, payload.roomId);
+      } catch (error) {
+        emitSocketError(socket, error);
+      }
+    });
+
+    socket.on("game:pass-extra-die", (payload: GamePassExtraDieEvent) => {
+      try {
+        const membership = requireMembership(context, payload.roomId, socket);
+        const next = context.gameService.applyAction(payload.roomId, {
+          type: "pass-extra-die",
+          playerId: membership.player.id
         });
         syncFinishedStateIfNeeded(context, next.state);
         emitRoomState(io, context, payload.roomId);

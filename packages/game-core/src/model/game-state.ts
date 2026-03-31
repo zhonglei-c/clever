@@ -35,11 +35,18 @@ export interface TurnStateSnapshot {
   activeSelections: DieValue[];
   silverPlatter: DieValue[];
   passiveSelections: PassivePickSnapshot[];
+  extraDiceUsedByPlayer: Partial<Record<string, DieId[]>>;
+  extraDicePassedByPlayer: Partial<Record<string, boolean>>;
   pendingBonusResolution:
     | {
         playerId: string;
         bonuses: PendingSheetBonus[];
         resumePhase: Exclude<GamePhase, "awaiting_bonus_resolution">;
+        mode?: "queue" | "choice";
+        roundStartChoiceState?: {
+          remainingPlayerIds: string[];
+          choiceBonuses: PendingSheetBonus[];
+        } | null;
       }
     | null;
 }

@@ -67,6 +67,10 @@ export interface GameRollEvent {
   roomId: string;
 }
 
+export interface GameActiveSkipEvent {
+  roomId: string;
+}
+
 export interface GameSelectDieEvent {
   roomId: string;
   dieId: DieId;
@@ -80,6 +84,20 @@ export interface GamePassivePickEvent {
 }
 
 export interface GamePassiveSkipEvent {
+  roomId: string;
+}
+
+export interface GameUseRerollEvent {
+  roomId: string;
+}
+
+export interface GameUseExtraDieEvent {
+  roomId: string;
+  dieId: DieId;
+  placement: PlacementPayload;
+}
+
+export interface GamePassExtraDieEvent {
   roomId: string;
 }
 

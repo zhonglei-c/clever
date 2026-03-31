@@ -35,20 +35,20 @@ test("yellow area tracks row and diagonal bonuses on the explicit board layout",
   let sheet = createEmptyPlayerSheet();
 
   sheet = applyPlacementToSheet(sheet, { zone: "yellow", cellId: "y-r1c1" }, {
-    die: { id: "yellow", color: "yellow", value: 2 },
-    currentDiceValues: { yellow: 2 }
+    die: { id: "yellow", color: "yellow", value: 3 },
+    currentDiceValues: { yellow: 3 }
   }).sheet;
   sheet = applyPlacementToSheet(sheet, { zone: "yellow", cellId: "y-r1c2" }, {
-    die: { id: "white", color: "white", value: 1 },
-    currentDiceValues: { white: 1 }
+    die: { id: "white", color: "white", value: 6 },
+    currentDiceValues: { white: 6 }
   }).sheet;
   sheet = applyPlacementToSheet(sheet, { zone: "yellow", cellId: "y-r1c3" }, {
     die: { id: "yellow", color: "yellow", value: 5 },
     currentDiceValues: { yellow: 5 }
   }).sheet;
   const rowFinisher = applyPlacementToSheet(sheet, { zone: "yellow", cellId: "y-r1c4" }, {
-    die: { id: "yellow", color: "yellow", value: 4 },
-    currentDiceValues: { yellow: 4 }
+    die: { id: "yellow", color: "yellow", value: 2 },
+    currentDiceValues: { yellow: 2 }
   });
 
   assert.deepEqual(rowFinisher.sheet.yellow.claimedRowBonuses, [1]);
@@ -63,12 +63,12 @@ test("yellow area tracks row and diagonal bonuses on the explicit board layout",
 
   const diagonalStart = rowFinisher.sheet;
   const afterDiagonal2 = applyPlacementToSheet(diagonalStart, { zone: "yellow", cellId: "y-r2c2" }, {
-    die: { id: "yellow", color: "yellow", value: 2 },
-    currentDiceValues: { yellow: 2 }
+    die: { id: "yellow", color: "yellow", value: 5 },
+    currentDiceValues: { yellow: 5 }
   }).sheet;
   const diagonalFinisher = applyPlacementToSheet(afterDiagonal2, { zone: "yellow", cellId: "y-r3c3" }, {
-    die: { id: "white", color: "white", value: 6 },
-    currentDiceValues: { white: 6 }
+    die: { id: "white", color: "white", value: 4 },
+    currentDiceValues: { white: 4 }
   });
 
   assert.equal(diagonalFinisher.sheet.yellow.claimedDiagonalBonus, true);
@@ -161,25 +161,57 @@ test("blue area triggers row and column bonuses from the explicit board layout",
   ]);
 });
 
-test("green area enforces strictly increasing threshold gates", () => {
+test("green area allows values equal to the printed threshold", () => {
   const first = applyPlacementToSheet(createEmptyPlayerSheet(), { zone: "green" }, {
-    die: { id: "green", color: "green", value: 2 },
-    currentDiceValues: { green: 2 }
+    die: { id: "green", color: "green", value: 1 },
+    currentDiceValues: { green: 1 }
   });
   const second = applyPlacementToSheet(first.sheet, { zone: "green" }, {
-    die: { id: "white", color: "white", value: 4 },
-    currentDiceValues: { white: 4 }
+    die: { id: "white", color: "white", value: 2 },
+    currentDiceValues: { white: 2 }
   });
 
   assert.deepEqual(second.sheet.green.filledThresholds, [1, 2]);
   assert.throws(
     () =>
       applyPlacementToSheet(second.sheet, { zone: "green" }, {
-        die: { id: "green", color: "green", value: 3 },
-        currentDiceValues: { green: 3 }
+        die: { id: "green", color: "green", value: 2 },
+        currentDiceValues: { green: 2 }
       }),
-    /greater than 3/i,
+    /at least 3/i,
   );
+});
+
+test("green area emits configured milestone bonuses", () => {
+  const sheet = createEmptyPlayerSheet();
+  sheet.green.filledThresholds = [1, 2, 3];
+
+  const fourth = applyPlacementToSheet(sheet, { zone: "green" }, {
+    die: { id: "green", color: "green", value: 6 },
+    currentDiceValues: { green: 6 }
+  });
+
+  assert.deepEqual(fourth.triggeredBonuses, [
+    {
+      type: "extra-die",
+      source: "green-step-4"
+    }
+  ]);
+
+  const lateSheet = createEmptyPlayerSheet();
+  lateSheet.green.filledThresholds = [1, 2, 3, 4, 5, 1, 2, 3, 4];
+  const tenth = applyPlacementToSheet(lateSheet, { zone: "green" }, {
+    die: { id: "white", color: "white", value: 6 },
+    currentDiceValues: { white: 6 }
+  });
+
+  assert.deepEqual(tenth.triggeredBonuses, [
+    {
+      type: "purple-number",
+      value: 6,
+      source: "green-step-10"
+    }
+  ]);
 });
 
 test("purple area must strictly increase unless the previous value was six", () => {
@@ -209,6 +241,37 @@ test("purple area must strictly increase unless the previous value was six", () 
   assert.deepEqual(third.sheet.purple.values, [3, 6, 1]);
 });
 
+test("orange and purple tracks emit milestone bonuses", () => {
+  const orangeSheet = createEmptyPlayerSheet();
+  orangeSheet.orange.values = [1, 2, 3, 4, 5, 6, 1];
+  const orangeFox = applyPlacementToSheet(orangeSheet, { zone: "orange" }, {
+    die: { id: "orange", color: "orange", value: 2 },
+    currentDiceValues: { orange: 2 }
+  });
+
+  assert.deepEqual(orangeFox.triggeredBonuses, [
+    {
+      type: "fox",
+      source: "orange-step-8"
+    }
+  ]);
+
+  const purpleSheet = createEmptyPlayerSheet();
+  purpleSheet.purple.values = [6, 1, 2, 3, 4, 5, 6, 1, 2];
+  const purpleOrange = applyPlacementToSheet(purpleSheet, { zone: "purple" }, {
+    die: { id: "purple", color: "purple", value: 3 },
+    currentDiceValues: { purple: 3 }
+  });
+
+  assert.deepEqual(purpleOrange.triggeredBonuses, [
+    {
+      type: "orange-number",
+      value: 6,
+      source: "purple-step-10"
+    }
+  ]);
+});
+
 test("pending wild-mark bonuses can be resolved into a legal follow-up placement", () => {
   const seeded = enqueueSheetBonuses(createEmptyPlayerSheet(), [
     {
@@ -220,6 +283,30 @@ test("pending wild-mark bonuses can be resolved into a legal follow-up placement
 
   assert.equal(result.sheet.pendingBonuses.length, 0);
   assert.deepEqual(result.sheet.green.filledThresholds, [1]);
+});
+
+test("instant fox and reroll bonuses are stored as resources when resolved", () => {
+  const foxSeeded = enqueueSheetBonuses(createEmptyPlayerSheet(), [
+    {
+      type: "fox",
+      source: "test-fox"
+    }
+  ]);
+  const foxResolved = resolvePendingBonus(foxSeeded, 0, { zone: "green" });
+
+  assert.equal(foxResolved.sheet.pendingBonuses.length, 0);
+  assert.equal(foxResolved.sheet.resources.foxes, 1);
+
+  const rerollSeeded = enqueueSheetBonuses(createEmptyPlayerSheet(), [
+    {
+      type: "reroll",
+      source: "test-reroll"
+    }
+  ]);
+  const rerollResolved = resolvePendingBonus(rerollSeeded, 0, { zone: "green" });
+
+  assert.equal(rerollResolved.sheet.pendingBonuses.length, 0);
+  assert.equal(rerollResolved.sheet.resources.rerolls, 1);
 });
 
 test("scorePlayerSheet combines zone scores and fox bonus", () => {

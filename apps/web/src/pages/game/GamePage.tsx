@@ -36,6 +36,11 @@ type SelectedIntent =
       die: DieValue;
     }
   | {
+      kind: "extra";
+      die: DieValue;
+      playerRole: "active" | "passive";
+    }
+  | {
       kind: "bonus";
       bonus: PendingSheetBonus;
       bonusIndex: number;
@@ -199,6 +204,9 @@ export function GamePage() {
 
   const currentPlayer = room?.players.find((player) => player.id === currentPlayerId) ?? null;
   const activePlayer = room?.players.find((player) => player.id === gameState?.currentPlayerId) ?? null;
+  const rolledDice = gameState?.turn?.rolledDice ?? [];
+  const silverPlatter = gameState?.turn?.silverPlatter ?? [];
+  const activeSelections = gameState?.turn?.activeSelections ?? [];
   const passiveSelection = useMemo(
     () => gameState?.turn?.passiveSelections.find((selection) => selection.playerId === currentPlayerId) ?? null,
     [currentPlayerId, gameState?.turn?.passiveSelections],
@@ -216,6 +224,46 @@ export function GamePage() {
     [gameState, mySheet, selectedIntent],
   );
   const selectedIntentHasLegalTarget = hasAnyLegalTarget(sheetSelection);
+  const selectionSummary = describeSelectedIntent(selectedIntent);
+  const phaseRulesSection = getRulesSectionForPhase(gameState?.phase);
+  const contextualRuleLinks = getContextualRuleLinks(gameState?.phase);
+  const canUseRerollResource = Boolean(
+    gameState?.phase === "awaiting_active_selection" &&
+      gameState.currentPlayerId === currentPlayerId &&
+      (mySheet?.sheet.resources.rerolls ?? 0) > 0,
+  );
+  const passiveRegularDice = useMemo(
+    () => (gameState && mySheet ? getPassiveRegularDice(gameState, mySheet) : silverPlatter),
+    [gameState, mySheet, silverPlatter],
+  );
+  const passiveRegularSource = useMemo(
+    () => (gameState && mySheet ? getPassiveRegularSource(gameState, mySheet) : "silver"),
+    [gameState, mySheet],
+  );
+  const hasAnyPlayableActiveDie = Boolean(
+    mySheet &&
+      gameState &&
+      rolledDice.some((die) => isDieChoicePlayable({ kind: "active", die }, gameState, mySheet)),
+  );
+  const hasAnyPlayablePassiveDie = Boolean(
+    mySheet &&
+      gameState &&
+      passiveRegularDice.some((die) => isDieChoicePlayable({ kind: "passive", die }, gameState, mySheet)),
+  );
+  const canUseExtraDieResource = Boolean(
+    gameState &&
+      mySheet &&
+      canUseExtraDieAction(gameState, currentPlayerId, mySheet, passiveSelection?.status ?? null),
+  );
+  const extraActionDice = useMemo(
+    () =>
+      gameState && mySheet && currentPlayerId
+        ? getExtraDieCandidates(gameState, mySheet, currentPlayerId)
+        : [],
+    [currentPlayerId, gameState, mySheet],
+  );
+  const extraActionRole: "active" | "passive" =
+    gameState?.currentPlayerId === currentPlayerId ? "active" : "passive";
   const actionPrompt = getActionPrompt({
     room,
     gameState,
@@ -223,23 +271,23 @@ export function GamePage() {
     currentPlayerNickname: currentPlayer?.nickname ?? nickname,
     activePlayerNickname: activePlayer?.nickname ?? null,
     passiveSelectionStatus: passiveSelection?.status ?? null,
+    passiveRegularSource,
     hasPendingBonus: Boolean(pendingBonusResolution),
     selectedIntent,
     selectedIntentHasLegalTarget
   });
-  const selectionSummary = describeSelectedIntent(selectedIntent);
-  const phaseRulesSection = getRulesSectionForPhase(gameState?.phase);
-  const contextualRuleLinks = getContextualRuleLinks(gameState?.phase);
 
   const canRoll = Boolean(
     room?.status === "in_game" &&
       gameState?.phase === "awaiting_active_roll" &&
       gameState.currentPlayerId === currentPlayerId,
   );
+  const hasPendingTurnEndExtraDie = Boolean(gameState && !areTurnEndActionsComplete(gameState));
   const canAdvanceTurn = Boolean(
     room?.status === "in_game" &&
       gameState?.phase === "awaiting_turn_end" &&
-      gameState.currentPlayerId === currentPlayerId,
+      gameState.currentPlayerId === currentPlayerId &&
+      !hasPendingTurnEndExtraDie,
   );
 
   function handleJoinRoom(event: FormEvent<HTMLFormElement>) {
@@ -309,6 +357,34 @@ export function GamePage() {
     });
   }
 
+  function handleUseExtraDie(die: DieValue, placement: SheetPlacement) {
+    if (!gameState) {
+      return;
+    }
+
+    const socket = ensureRealtimeConnection();
+    emitAction(`extra-${die.id}-${placement.zone}`, () => {
+      socket.emit("game:use-extra-die", {
+        roomId: gameState.roomId,
+        dieId: die.id,
+        placement
+      });
+    });
+  }
+
+  function handlePassExtraDie() {
+    if (!gameState) {
+      return;
+    }
+
+    const socket = ensureRealtimeConnection();
+    emitAction("pass-extra-die", () => {
+      socket.emit("game:pass-extra-die", {
+        roomId: gameState.roomId
+      });
+    });
+  }
+
   function handlePassiveSkip() {
     if (!gameState) {
       return;
@@ -322,6 +398,19 @@ export function GamePage() {
     });
   }
 
+  function handleActiveSkip() {
+    if (!gameState) {
+      return;
+    }
+
+    const socket = ensureRealtimeConnection();
+    emitAction("active-skip", () => {
+      socket.emit("game:active-skip", {
+        roomId: gameState.roomId
+      });
+    });
+  }
+
   function handleAdvanceTurn() {
     if (!gameState) {
       return;
@@ -330,6 +419,19 @@ export function GamePage() {
     const socket = ensureRealtimeConnection();
     emitAction("advance-turn", () => {
       socket.emit("game:advance-turn", {
+        roomId: gameState.roomId
+      });
+    });
+  }
+
+  function handleUseRerollResource() {
+    if (!gameState) {
+      return;
+    }
+
+    const socket = ensureRealtimeConnection();
+    emitAction("use-reroll", () => {
+      socket.emit("game:use-reroll", {
         roomId: gameState.roomId
       });
     });
@@ -350,6 +452,21 @@ export function GamePage() {
     });
   }
 
+  function handleResolveInstantBonus(bonusIndex: number) {
+    if (!gameState) {
+      return;
+    }
+
+    const socket = ensureRealtimeConnection();
+    emitAction(`resolve-${bonusIndex}-instant`, () => {
+      socket.emit("game:resolve-bonus", {
+        roomId: gameState.roomId,
+        bonusIndex,
+        placement: { zone: "green" }
+      });
+    });
+  }
+
   function handleSheetPlacement(placement: SheetPlacement) {
     if (!selectedIntent) {
       return;
@@ -362,6 +479,11 @@ export function GamePage() {
 
     if (selectedIntent.kind === "passive") {
       handlePassivePick(selectedIntent.die, placement);
+      return;
+    }
+
+    if (selectedIntent.kind === "extra") {
+      handleUseExtraDie(selectedIntent.die, placement);
       return;
     }
 
@@ -397,9 +519,6 @@ export function GamePage() {
     );
   }
 
-  const rolledDice = gameState?.turn?.rolledDice ?? [];
-  const silverPlatter = gameState?.turn?.silverPlatter ?? [];
-
   return (
     <main className="page-shell">
       <section className="status-strip panel">
@@ -424,6 +543,10 @@ export function GamePage() {
         <div>
           <span className="status-label">轮次</span>
           <strong>{gameState ? `${gameState.round} / ${gameState.totalRounds}` : "-"}</strong>
+        </div>
+        <div>
+          <span className="status-label">开局奖励</span>
+          <strong>{getRoundTrackerLabel(gameState?.round ?? null)}</strong>
         </div>
         <div>
           <span className="status-label">当前玩家</span>
@@ -473,19 +596,32 @@ export function GamePage() {
           </div>
           {selectionSummary ? (
             <div className="info-banner selection-banner">
-              <strong>当前已选：</strong> {selectionSummary}
-              <button className="micro-button" onClick={() => setSelectedIntent(null)}>
-                取消选择
-              </button>
+              <div className="selection-copy">
+                <strong>当前已选：</strong> {selectionSummary}
+                {selectedIntentHasLegalTarget ? (
+                  <div className="selection-targets">可操作位置：{describeLegalTargets(sheetSelection)}</div>
+                ) : null}
+              </div>
+              <div className="mini-action-row">
+                <button className="micro-button" onClick={() => setSelectedIntent(null)}>
+                  取消选择
+                </button>
+              </div>
             </div>
           ) : null}
           {selectedIntent && !selectedIntentHasLegalTarget ? (
             <div className="error-banner">
               当前选中的对象在所有允许区域里都没有合法落点。
               {selectedIntent.kind === "passive"
-                ? " 这是被动阶段时，可以改选别的银盘骰子，或者直接跳过。"
+                ? passiveRegularSource === "active-fields"
+                  ? " 这是被动阶段的主动骰位补救选择；如果这里也都不能用，你才可以跳过。"
+                  : " 这是被动阶段时，可以改选别的银盘骰子；只有银盘和主动骰位都不能用时才可以跳过。"
                 : selectedIntent.kind === "active"
-                  ? " 这是主动阶段时，请取消当前选择并改选别的骰子。"
+                  ? hasAnyPlayableActiveDie
+                    ? " 这是主动阶段时，请取消当前选择并改选别的骰子。"
+                    : " 这是主动阶段时，而且当前所有已掷骰子都没有合法落点；你现在可以把这次掷骰记为空过。"
+                  : selectedIntent.kind === "extra"
+                    ? " 这是额外骰动作时，请改选别的候选骰子。"
                   : " 请取消当前奖励选择，改用其他可解析的奖励或等待前一动作调整。"}
             </div>
           ) : null}
@@ -528,7 +664,14 @@ export function GamePage() {
                 <span>{mySheet?.sheet.orange.values.length ?? 0} 次记录</span>
               </div>
               <p className="sheet-hint">{getZoneHint("orange", sheetSelection, selectedIntent)}</p>
-              {mySheet ? renderTrackSheet(mySheet.sheet.orange.values, "尚未填入橙色值。", "orange", sheetSelection, handleSheetPlacement) : <p>等待同步</p>}
+              {mySheet
+                ? renderOrangeSheet(
+                    mySheet,
+                    sheetSelection,
+                    handleSheetPlacement,
+                    getTrackPreviewValue("orange", selectedIntent),
+                  )
+                : <p>等待同步</p>}
             </article>
             <article className={`sheet-card sheet-purple ${
               sheetSelection.activeZoneIds.has("purple") ? "sheet-card-active" : ""
@@ -538,7 +681,14 @@ export function GamePage() {
                 <span>{mySheet?.sheet.purple.values.length ?? 0} 次记录</span>
               </div>
               <p className="sheet-hint">{getZoneHint("purple", sheetSelection, selectedIntent)}</p>
-              {mySheet ? renderTrackSheet(mySheet.sheet.purple.values, "尚未填入紫色值。", "purple", sheetSelection, handleSheetPlacement) : <p>等待同步</p>}
+              {mySheet
+                ? renderPurpleSheet(
+                    mySheet,
+                    sheetSelection,
+                    handleSheetPlacement,
+                    getTrackPreviewValue("purple", selectedIntent),
+                  )
+                : <p>等待同步</p>}
             </article>
             <article className="sheet-card sheet-resource">
               <div className="sheet-card-header">
@@ -557,7 +707,9 @@ export function GamePage() {
             <p className="lead">这里现在展示真实掷骰结果、银盘和可执行动作。</p>
             <div className="dice-section">
               <h3>本次掷骰</h3>
-              <p className="helper-copy">白骰当前先按“默认落点”流程处理，会提供跨五个区域的快捷按钮。</p>
+              <p className="helper-copy">
+                白骰可以当任意颜色使用。点中后左侧会高亮当前真的能落子的区域，蓝色区会自动按蓝骰和白骰的和数判断。
+              </p>
               <div className="dice-grid">
                 {rolledDice.length > 0 ? (
                   rolledDice.map((die) => (
@@ -607,6 +759,11 @@ export function GamePage() {
             </div>
             <div className="dice-section">
               <h3>银盘</h3>
+              <p className="helper-copy">
+                {passiveRegularSource === "active-fields"
+                  ? "你当前不能使用任何银盘骰子。按规则，现在必须改从主动玩家左上角的已选骰子里拿 1 颗。"
+                  : "被动玩家通常从这里拿 1 颗骰子；多个被动玩家可以选择同一颗。"}
+              </p>
               <div className="dice-grid">
                 {silverPlatter.length > 0 ? (
                   silverPlatter.map((die) => (
@@ -633,12 +790,16 @@ export function GamePage() {
                         mySheet && gameState
                           ? isDieChoicePlayable({ kind: "passive", die }, gameState, mySheet)
                             ? "这个银盘骰子当前至少有一个合法落点。"
-                            : "这个银盘骰子当前没有合法落点，可以考虑换一个或跳过。"
+                            : "这个银盘骰子当前没有合法落点。"
                           : ""
                       }
                       onClick={() => setSelectedIntent({ kind: "passive", die })}
                       disabled={
-                        !(gameState?.phase === "awaiting_passive_picks" && passiveSelection?.status === "pending")
+                        !(
+                          gameState?.phase === "awaiting_passive_picks" &&
+                          passiveSelection?.status === "pending" &&
+                          passiveRegularSource === "silver"
+                        )
                       }
                     >
                       <strong>{die.id}</strong>
@@ -647,6 +808,52 @@ export function GamePage() {
                   ))
                 ) : (
                   <p>银盘还没有骰子。</p>
+                )}
+              </div>
+            </div>
+            <div className="dice-section">
+              <h3>主动玩家骰位</h3>
+              <p className="helper-copy">
+                这里是主动玩家本回合常规拿过的骰子。只有当你作为被动玩家完全不能使用银盘时，才能从这里拿 1 颗。
+              </p>
+              <div className="dice-grid">
+                {activeSelections.length > 0 ? (
+                  activeSelections.map((die) => (
+                    <button
+                      key={`active-selection-${die.id}-${die.value}`}
+                      className={`die-card die-${die.color} ${
+                        isIntentSelected(selectedIntent, "passive", die.id) ? "die-card-selected" : ""
+                      } ${
+                        gameState?.phase === "awaiting_passive_picks" && passiveSelection?.status === "pending"
+                          ? "die-card-actionable"
+                          : ""
+                      } ${
+                        mySheet && gameState
+                          ? isDieChoicePlayable({ kind: "passive", die }, gameState, mySheet)
+                            ? ""
+                            : "die-card-blocked"
+                          : ""
+                      }`}
+                      title={
+                        passiveRegularSource === "active-fields"
+                          ? "按规则，你当前必须从这些主动骰位里选 1 颗。"
+                          : "只有当银盘里没有任何可用骰子时，才能改从这里拿。"
+                      }
+                      onClick={() => setSelectedIntent({ kind: "passive", die })}
+                      disabled={
+                        !(
+                          gameState?.phase === "awaiting_passive_picks" &&
+                          passiveSelection?.status === "pending" &&
+                          passiveRegularSource === "active-fields"
+                        )
+                      }
+                    >
+                      <strong>{die.id}</strong>
+                      <span>{die.value}</span>
+                    </button>
+                  ))
+                ) : (
+                  <p>主动玩家还没有放入骰位的骰子。</p>
                 )}
               </div>
             </div>
@@ -681,7 +888,28 @@ export function GamePage() {
               {gameState?.phase === "awaiting_active_selection" && gameState.currentPlayerId === currentPlayerId ? (
                 <div className="action-group">
                   <h3>主动选骰</h3>
-                  <p className="helper-copy">先在这里选中一个骰子，再去左侧高亮区域点格子或点轨道位完成落子。</p>
+                  <p className="helper-copy">
+                    先在这里选中一个骰子，再去左侧高亮区域点格子或点轨道位完成落子。
+                    如果当前所有已掷骰子都没有合法落点，这次掷骰会被记为空过，仍然会消耗一次常规掷骰机会。
+                  </p>
+                  <div className="mini-action-row">
+                    <button
+                      className="secondary-button"
+                      onClick={handleUseRerollResource}
+                      disabled={!canUseRerollResource || pendingAction !== null}
+                    >
+                      {pendingAction === "use-reroll"
+                        ? "重投中..."
+                        : `消耗重投 (${mySheet?.sheet.resources.rerolls ?? 0})`}
+                    </button>
+                    <button
+                      className="secondary-button"
+                      onClick={handleActiveSkip}
+                      disabled={hasAnyPlayableActiveDie || pendingAction !== null}
+                    >
+                      {pendingAction === "active-skip" ? "处理中..." : "本掷无法填写，记为空过"}
+                    </button>
+                  </div>
                   {rolledDice.map((die) => (
                     <div key={`active-action-${die.id}`} className="die-action-row">
                       <span>{describeDieAction(die, "active")}</span>
@@ -710,8 +938,12 @@ export function GamePage() {
               {gameState?.phase === "awaiting_passive_picks" && passiveSelection?.status === "pending" ? (
                 <div className="action-group">
                   <h3>被动选骰</h3>
-                  <p className="helper-copy">被动玩家最多拿银盘中的一个骰子。白骰同样提供跨区域默认落点。</p>
-                  {silverPlatter.map((die) => (
+                  <p className="helper-copy">
+                    {passiveRegularSource === "active-fields"
+                      ? "按规则，你当前不能使用任何银盘骰子，所以必须改从主动玩家左上角的已选骰子里拿 1 颗。"
+                      : "被动玩家最多拿银盘中的一个骰子。只有当银盘和主动骰位都没有合法选择时，才能跳过。"}
+                  </p>
+                  {passiveRegularDice.map((die) => (
                     <div key={`passive-action-${die.id}-${die.value}`} className="die-action-row">
                       <span>{describeDieAction(die, "passive")}</span>
                       <div className="mini-action-row">
@@ -733,38 +965,46 @@ export function GamePage() {
                       </div>
                     </div>
                   ))}
-                  <button className="secondary-button" onClick={handlePassiveSkip} disabled={pendingAction !== null}>
-                    {pendingAction === "passive-skip" ? "处理中..." : "跳过本次银盘选择"}
+                  <button
+                    className="secondary-button"
+                    onClick={handlePassiveSkip}
+                    disabled={hasAnyPlayablePassiveDie || pendingAction !== null}
+                  >
+                    {pendingAction === "passive-skip" ? "处理中..." : "没有合法骰子，跳过本次被动选择"}
                   </button>
                 </div>
               ) : null}
 
               {gameState?.phase === "awaiting_passive_picks" && passiveSelection?.status === "picked" ? (
                 <div className="info-banner">
-                  你的被动选择已经提交，等待其他玩家完成本轮银盘阶段。
+                  你的常规被动选择已经提交。若你还有额外骰动作，还可以在本回合继续使用。
                 </div>
               ) : null}
 
               {gameState?.phase === "awaiting_passive_picks" && passiveSelection?.status === "skipped" ? (
                 <div className="info-banner">
-                  你已经跳过本次银盘选择，等待其他玩家完成本轮银盘阶段。
+                  你本次没有任何合法被动选择，已结束常规被动步骤。若你还有额外骰动作，还可以在本回合继续使用。
                 </div>
               ) : null}
 
-              {gameState?.phase === "awaiting_bonus_resolution" && pendingBonusResolution ? (
+              {canUseExtraDieResource ? (
                 <div className="action-group">
-                  <h3>奖励解析</h3>
-                  {pendingBonusResolution.bonuses.map((bonus, index) => (
-                    <div key={`${bonus.source}-${index}`} className="die-action-row">
-                      <span>{describeBonus(bonus)}</span>
+                  <h3>Extra die 动作</h3>
+                  <p className="helper-copy">
+                    你现在可以消耗 1 个额外骰动作，从本回合全部 6 颗骰子里再选 1 颗来落子。
+                    同一颗骰子在本回合里不能被这个动作重复选择。
+                  </p>
+                  {extraActionDice.map((die) => (
+                    <div key={`extra-action-${die.id}-${die.value}`} className="die-action-row">
+                      <span>{describeDieAction(die, extraActionRole)}</span>
                       <div className="mini-action-row">
                         <button
                           className={`micro-button ${
-                            selectedIntent?.kind === "bonus" && selectedIntent.bonusIndex === index
+                            selectedIntent?.kind === "extra" && selectedIntent.die.id === die.id
                               ? "micro-button-selected"
                               : ""
                           }`}
-                          onClick={() => setSelectedIntent({ kind: "bonus", bonus, bonusIndex: index })}
+                          onClick={() => setSelectedIntent({ kind: "extra", die, playerRole: extraActionRole })}
                           disabled={pendingAction !== null}
                         >
                           选中后点纸面
@@ -772,9 +1012,67 @@ export function GamePage() {
                         <details className="fallback-details">
                           <summary>备用快捷按钮</summary>
                           <div className="mini-action-row fallback-row">
-                            {renderBonusButtons(bonus, (placement) => handleResolveBonus(index, placement), pendingAction)}
+                            {renderPlacementButtons(die, (placement) => handleUseExtraDie(die, placement), pendingAction, "额外拿")}
                           </div>
                         </details>
+                      </div>
+                    </div>
+                  ))}
+                  <button
+                    className="secondary-button"
+                    onClick={handlePassExtraDie}
+                    disabled={pendingAction !== null}
+                  >
+                    {pendingAction === "pass-extra-die" ? "处理中..." : "本回合不再使用额外骰"}
+                  </button>
+                </div>
+              ) : null}
+
+              {gameState?.phase === "awaiting_bonus_resolution" && pendingBonusResolution ? (
+                <div className="action-group">
+                  <h3>{pendingBonusResolution.mode === "choice" ? "回合开局奖励" : "奖励解析"}</h3>
+                  <p className="helper-copy">
+                    {pendingBonusResolution.mode === "choice"
+                      ? "第 4 轮开始时，每位玩家都要在黑色 X 和黑色 6 之间二选一，并立即执行，不能留到后面。"
+                      : "先把奖励链处理完，完成后游戏会自动回到之前的阶段。"}
+                  </p>
+                  {pendingBonusResolution.bonuses.map((bonus, index) => (
+                    <div key={`${bonus.source}-${index}`} className="die-action-row">
+                      <span>{describeBonus(bonus)}</span>
+                      <div className="mini-action-row">
+                        {isInstantBonus(bonus) ? (
+                          <button
+                            className="micro-button micro-button-emphasis"
+                            onClick={() => handleResolveInstantBonus(index)}
+                            disabled={pendingAction !== null}
+                          >
+                            {pendingAction === `resolve-${index}-instant` ? "领取中..." : "立即领取"}
+                          </button>
+                        ) : (
+                          <>
+                            <button
+                              className={`micro-button ${
+                                selectedIntent?.kind === "bonus" && selectedIntent.bonusIndex === index
+                                  ? "micro-button-selected"
+                                  : ""
+                              }`}
+                              onClick={() => setSelectedIntent({ kind: "bonus", bonus, bonusIndex: index })}
+                              disabled={pendingAction !== null}
+                            >
+                              选中后点纸面
+                            </button>
+                            <details className="fallback-details">
+                              <summary>备用快捷按钮</summary>
+                              <div className="mini-action-row fallback-row">
+                                {renderBonusButtons(
+                                  bonus,
+                                  (placement) => handleResolveBonus(index, placement),
+                                  pendingAction,
+                                )}
+                              </div>
+                            </details>
+                          </>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -788,6 +1086,11 @@ export function GamePage() {
               >
                 {pendingAction === "advance-turn" ? "推进中..." : "推进到下一位玩家"}
               </button>
+              {gameState?.phase === "awaiting_turn_end" && hasPendingTurnEndExtraDie ? (
+                <div className="info-banner">
+                  当前仍有玩家可以继续使用或明确放弃 `Extra die` 动作，回合暂时还不能推进。
+                </div>
+              ) : null}
             </div>
             <div className="log-list">
               <h3>最近日志</h3>
@@ -821,26 +1124,64 @@ export function GamePage() {
   );
 }
 
-const yellowGrid: YellowCellId[][] = [
-  ["y-r1c1", "y-r1c2", "y-r1c3", "y-r1c4"],
-  ["y-r2c1", "y-r2c2", "y-r2c3", "y-r2c4"],
-  ["y-r3c1", "y-r3c2", "y-r3c3", "y-r3c4"]
+const yellowValues: Record<YellowCellId, number> = {
+  "y-r1c1": 3,
+  "y-r1c2": 6,
+  "y-r1c3": 5,
+  "y-r1c4": 2,
+  "y-r2c1": 1,
+  "y-r2c2": 5,
+  "y-r2c3": 1,
+  "y-r2c4": 2,
+  "y-r3c1": 4,
+  "y-r3c2": 3,
+  "y-r3c3": 4,
+  "y-r3c4": 6
+};
+
+const yellowColumnScores = [10, 14, 16, 20];
+const yellowRowRewards = [
+  { row: 1 as const, label: "3", tone: "yellow-reward-blue", tooltip: "黄色第 1 行完成后获得数字奖励 3" },
+  { row: 2 as const, label: "6", tone: "yellow-reward-orange", tooltip: "黄色第 2 行完成后获得数字奖励 6" },
+  { row: 3 as const, label: "5", tone: "yellow-reward-green", tooltip: "黄色第 3 行完成后获得数字奖励 5" }
 ];
 
-const yellowValues: Record<YellowCellId, number> = {
-  "y-r1c1": 2,
-  "y-r1c2": 1,
-  "y-r1c3": 5,
-  "y-r1c4": 4,
-  "y-r2c1": 1,
-  "y-r2c2": 2,
-  "y-r2c3": 4,
-  "y-r2c4": 3,
-  "y-r3c1": 5,
-  "y-r3c2": 6,
-  "y-r3c3": 6,
-  "y-r3c4": 3
-};
+type YellowDisplayCell =
+  | {
+      kind: "fillable";
+      cellId: YellowCellId;
+    }
+  | {
+      kind: "blocked";
+      id: string;
+    };
+
+const yellowDisplayGrid: YellowDisplayCell[][] = [
+  [
+    { kind: "fillable", cellId: "y-r1c1" },
+    { kind: "fillable", cellId: "y-r1c2" },
+    { kind: "fillable", cellId: "y-r1c3" },
+    { kind: "blocked", id: "y-block-1" }
+  ],
+  [
+    { kind: "fillable", cellId: "y-r1c4" },
+    { kind: "fillable", cellId: "y-r2c1" },
+    { kind: "blocked", id: "y-block-2" },
+    { kind: "fillable", cellId: "y-r2c2" }
+  ],
+  [
+    { kind: "fillable", cellId: "y-r2c3" },
+    { kind: "blocked", id: "y-block-3" },
+    { kind: "fillable", cellId: "y-r2c4" },
+    { kind: "fillable", cellId: "y-r3c1" }
+  ],
+  [
+    { kind: "blocked", id: "y-block-4" },
+    { kind: "fillable", cellId: "y-r3c2" },
+    { kind: "fillable", cellId: "y-r3c3" },
+    { kind: "fillable", cellId: "y-r3c4" }
+  ]
+];
 
 const blueGrid: Array<Array<BlueCellId | null>> = [
   ["b-r1c1", "b-r1c2", null, null],
@@ -863,6 +1204,85 @@ const blueSums: Record<BlueCellId, number> = {
   "b-r4c4": 12
 };
 
+const blueScoreTrack = [1, 2, 4, 7, 11, 16, 22, 29, 37, 46, 56];
+const blueCountTrack = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
+const blueRowRewards = [
+  { row: 1 as const, label: "+1", tone: "blue-reward-orange", tooltip: "蓝色第 1 行完成后获得额外骰资源" },
+  { row: 2 as const, label: "X", tone: "blue-reward-yellow", tooltip: "蓝色第 2 行完成后获得万能填写" },
+  { row: 3 as const, label: "6", tone: "blue-reward-fox", tooltip: "蓝色第 3 行完成后获得数字奖励 6（橙/紫）" },
+  { row: 4 as const, label: "+1", tone: "blue-reward-orange", tooltip: "蓝色第 4 行完成后获得额外骰资源" }
+];
+const blueBottomRewards = [
+  { column: 1 as const, label: "3", tone: "blue-bonus-dark", tooltip: "蓝色第 1 列完成后获得数字奖励 3" },
+  { column: 2 as const, label: "4", tone: "blue-bonus-green", tooltip: "蓝色第 2 列完成后获得数字奖励 4" },
+  { column: 3 as const, label: "6", tone: "blue-bonus-purple", tooltip: "蓝色第 3 列完成后获得数字奖励 6" },
+  { column: 4 as const, label: "9", tone: "blue-bonus-dark", tooltip: "蓝色第 4 列完成后获得数字奖励 9" }
+];
+const greenThresholdTrack = [1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 6] as const;
+const greenScoreTrack = [1, 3, 6, 10, 15, 21, 28, 36, 45, 55, 66];
+const greenRewardMarkers = [
+  { column: 4, label: "+1", tone: "green-marker-dark", tooltip: "绿色第 4 格奖励：额外骰资源" },
+  { column: 7, label: "X", tone: "green-marker-blue", tooltip: "绿色第 7 格奖励：万能填写" },
+  { column: 8, label: "FOX", tone: "green-marker-red", tooltip: "绿色第 8 格奖励：狐狸" },
+  { column: 10, label: "6", tone: "green-marker-purple", tooltip: "绿色第 10 格奖励：紫色数字 6" },
+  { column: 11, label: "R", tone: "green-marker-dark", tooltip: "绿色第 11 格奖励：重投资源" }
+];
+const orangeMultiplierMarkers = [
+  { slot: 4, label: "x2" },
+  { slot: 7, label: "x2" },
+  { slot: 9, label: "x2" },
+  { slot: 11, label: "x3" }
+];
+const orangeRewardMarkers = [
+  { slot: 3, label: "R", tone: "orange-marker-dark", tooltip: "橙色第 3 格奖励：重投资源" },
+  { slot: 5, label: "X", tone: "orange-marker-yellow", tooltip: "橙色第 5 格奖励：万能填写" },
+  { slot: 6, label: "+1", tone: "orange-marker-dark", tooltip: "橙色第 6 格奖励：额外骰资源" },
+  { slot: 8, label: "FOX", tone: "orange-marker-red", tooltip: "橙色第 8 格奖励：狐狸" },
+  { slot: 10, label: "6", tone: "orange-marker-purple", tooltip: "橙色第 10 格奖励：紫色数字 6" }
+];
+const purpleRewardMarkers = [
+  { slot: 3, label: "R", tone: "purple-marker-dark", tooltip: "紫色第 3 格奖励：重投资源" },
+  { slot: 4, label: "X", tone: "purple-marker-blue", tooltip: "紫色第 4 格奖励：万能填写" },
+  { slot: 5, label: "+1", tone: "purple-marker-dark", tooltip: "紫色第 5 格奖励：额外骰资源" },
+  { slot: 6, label: "X", tone: "purple-marker-yellow", tooltip: "紫色第 6 格奖励：万能填写" },
+  { slot: 7, label: "FOX", tone: "purple-marker-red", tooltip: "紫色第 7 格奖励：狐狸" },
+  { slot: 8, label: "R", tone: "purple-marker-dark", tooltip: "紫色第 8 格奖励：重投资源" },
+  { slot: 9, label: "X", tone: "purple-marker-green", tooltip: "紫色第 9 格奖励：万能填写" },
+  { slot: 10, label: "6", tone: "purple-marker-orange", tooltip: "紫色第 10 格奖励：橙色数字 6" },
+  { slot: 11, label: "+1", tone: "purple-marker-dark", tooltip: "紫色第 11 格奖励：额外骰资源" }
+];
+
+type BlueDisplayCell =
+  | {
+      kind: "formula";
+      id: string;
+    }
+  | {
+      kind: "fillable";
+      cellId: BlueCellId;
+    };
+
+const blueDisplayGrid: BlueDisplayCell[][] = [
+  [
+    { kind: "formula", id: "blue-formula" },
+    { kind: "fillable", cellId: "b-r1c1" },
+    { kind: "fillable", cellId: "b-r1c2" },
+    { kind: "fillable", cellId: "b-r2c1" }
+  ],
+  [
+    { kind: "fillable", cellId: "b-r2c3" },
+    { kind: "fillable", cellId: "b-r2c4" },
+    { kind: "fillable", cellId: "b-r3c2" },
+    { kind: "fillable", cellId: "b-r3c3" }
+  ],
+  [
+    { kind: "fillable", cellId: "b-r3c4" },
+    { kind: "fillable", cellId: "b-r4c2" },
+    { kind: "fillable", cellId: "b-r4c3" },
+    { kind: "fillable", cellId: "b-r4c4" }
+  ]
+];
+
 interface SheetSelectionState {
   activeZoneIds: Set<SheetPlacement["zone"]>;
   activeYellowCellIds: Set<YellowCellId>;
@@ -881,32 +1301,111 @@ function renderYellowSheet(
 
   return (
     <>
-      <div className="sheet-grid yellow-grid">
-        {yellowGrid.flatMap((row) =>
-          row.map((cellId) => (
-            <button
-              key={cellId}
-              className={`sheet-cell ${marked.has(cellId) ? "sheet-cell-marked" : ""} ${
-                selection.activeYellowCellIds.has(cellId) ? "sheet-cell-actionable" : ""
-              }`}
-              title={
-                marked.has(cellId)
-                  ? `黄色 ${yellowValues[cellId]}，已填写`
-                  : selection.activeYellowCellIds.has(cellId)
-                    ? `黄色 ${yellowValues[cellId]}，点击即可落子`
-                    : `黄色 ${yellowValues[cellId]}，当前不可落子`
-              }
-              onClick={() => onSelect({ zone: "yellow", cellId })}
-              disabled={!selection.activeYellowCellIds.has(cellId)}
-            >
-              {yellowValues[cellId]}
-            </button>
-          )),
-        )}
+      <div className="yellow-sheet-frame">
+        <div className="yellow-sheet-visual">
+          <div className="sheet-grid yellow-grid">
+            {yellowDisplayGrid.flatMap((row, rowIndex) =>
+              row.map((entry, columnIndex) => {
+                const connectRight = columnIndex < row.length - 1;
+                const connectDown = rowIndex < yellowDisplayGrid.length - 1;
+
+                if (entry.kind === "blocked") {
+                  return (
+                    <div
+                      key={entry.id}
+                      className={`yellow-slot yellow-slot-diagonal ${
+                        connectRight ? "yellow-slot-connect-right" : ""
+                      } ${
+                        connectDown ? "yellow-slot-connect-down" : ""
+                      }`}
+                    >
+                      <div
+                        className="yellow-cell-face yellow-cell-printed"
+                        title="纸面预印的 X，占位不可填写，同时属于黄色对角线奖励轨迹"
+                      >
+                        <span className="yellow-cell-mark">X</span>
+                      </div>
+                    </div>
+                  );
+                }
+
+                const isMarked = marked.has(entry.cellId);
+                const isActionable = selection.activeYellowCellIds.has(entry.cellId);
+
+                return (
+                  <div
+                    key={entry.cellId}
+                    className={`yellow-slot ${connectRight ? "yellow-slot-connect-right" : ""} ${
+                      connectDown ? "yellow-slot-connect-down" : ""
+                    }`}
+                  >
+                    <button
+                      className={`sheet-cell yellow-cell-face ${isMarked ? "yellow-cell-filled" : ""} ${
+                        isActionable ? "sheet-cell-actionable" : ""
+                      }`}
+                      title={
+                        isMarked
+                          ? `黄色 ${yellowValues[entry.cellId]}，已填写`
+                          : isActionable
+                            ? `黄色 ${yellowValues[entry.cellId]}，点击即可落子`
+                            : `黄色 ${yellowValues[entry.cellId]}，当前不可落子`
+                      }
+                      onClick={() => onSelect({ zone: "yellow", cellId: entry.cellId })}
+                      disabled={!isActionable}
+                    >
+                      {isMarked ? (
+                        <>
+                          <span className="yellow-cell-mark">X</span>
+                          <span className="yellow-cell-corner">{yellowValues[entry.cellId]}</span>
+                        </>
+                      ) : (
+                        <span className="yellow-cell-value">{yellowValues[entry.cellId]}</span>
+                      )}
+                    </button>
+                  </div>
+                );
+              }),
+            )}
+          </div>
+          <div className="yellow-reward-rail">
+            {yellowRowRewards.map((reward) => {
+              const claimed = player.sheet.yellow.claimedRowBonuses.includes(reward.row);
+
+              return (
+                <div
+                  key={reward.row}
+                  className={`yellow-reward-pill ${reward.tone} ${claimed ? "yellow-reward-pill-claimed" : ""}`}
+                  title={`${reward.tooltip}${claimed ? "，已获得" : ""}`}
+                >
+                  <span className="yellow-reward-pill-label">{reward.label}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        <div className="yellow-bottom-row">
+          <div className="yellow-score-strip">
+            {yellowColumnScores.map((score, index) => (
+              <div key={score} className="yellow-score-chip" title={`黄色第 ${index + 1} 列分值 ${score}`}>
+                <span className="yellow-score-chip-value">{score}</span>
+              </div>
+            ))}
+          </div>
+          <div
+            className={`yellow-corner-bonus ${
+              player.sheet.yellow.claimedDiagonalBonus ? "yellow-reward-pill-claimed" : ""
+            }`}
+            title={`黄色对角奖励：万能填写${player.sheet.yellow.claimedDiagonalBonus ? "，已获得" : ""}`}
+          >
+            <span className="yellow-score-chip-value">X</span>
+            <span className="yellow-corner-bonus-subtitle">对角</span>
+          </div>
+        </div>
       </div>
       <div className="sheet-meta">
         <span>对角奖励：{player.sheet.yellow.claimedDiagonalBonus ? "已拿" : "未拿"}</span>
-        <span>行奖励：{player.sheet.yellow.claimedRowBonuses.join(", ") || "暂无"}</span>
+        <span>已拿行奖励：{player.sheet.yellow.claimedRowBonuses.join(", ") || "暂无"}</span>
+        <span>各点数填写次数：{Object.entries(player.sheet.yellow.marksByValue).map(([value, count]) => `${value}:${count}`).join(" / ")}</span>
       </div>
     </>
   );
@@ -918,35 +1417,110 @@ function renderBlueSheet(
   onSelect: (placement: SheetPlacement) => void,
 ) {
   const marked = new Set(player.sheet.blue.markedCellIds);
+  const filledCount = player.sheet.blue.markedCellIds.length;
 
   return (
     <>
-      <div className="sheet-grid blue-grid">
-        {blueGrid.flatMap((row, rowIndex) =>
-          row.map((cellId, columnIndex) =>
-            cellId ? (
-              <button
-                key={cellId}
-                className={`sheet-cell ${marked.has(cellId) ? "sheet-cell-marked" : ""} ${
-                  selection.activeBlueCellIds.has(cellId) ? "sheet-cell-actionable" : ""
-                }`}
-                title={
-                  marked.has(cellId)
-                    ? `蓝色和数 ${blueSums[cellId]}，已填写`
-                    : selection.activeBlueCellIds.has(cellId)
-                      ? `蓝色和数 ${blueSums[cellId]}，点击即可落子`
-                      : `蓝色和数 ${blueSums[cellId]}，当前不可落子`
+      <div className="blue-sheet-frame">
+        <div className="blue-score-track">
+          {blueScoreTrack.map((score, index) => (
+            <div
+              key={score}
+              className={`blue-score-node ${index < filledCount ? "blue-score-node-filled" : ""}`}
+              title={`蓝色累计分值 ${score}`}
+            >
+              {score}
+            </div>
+          ))}
+        </div>
+        <div className="blue-count-track">
+          {blueCountTrack.map((count) => (
+            <span key={count} className="blue-count-label">
+              {count}
+            </span>
+          ))}
+        </div>
+        <div className="blue-sheet-visual">
+          <div className="sheet-grid blue-grid">
+            {blueDisplayGrid.flatMap((row) =>
+              row.map((entry) => {
+                if (entry.kind === "formula") {
+                  return (
+                    <div key={entry.id} className="blue-formula-tile" title="蓝骰 + 白骰 = 当前可填写的和数">
+                      <span className="blue-formula-die blue-formula-die-blue">B</span>
+                      <span className="blue-formula-plus">+</span>
+                      <span className="blue-formula-die blue-formula-die-white">W</span>
+                    </div>
+                  );
                 }
-                onClick={() => onSelect({ zone: "blue", cellId })}
-                disabled={!selection.activeBlueCellIds.has(cellId)}
+
+                const isMarked = marked.has(entry.cellId);
+                const isActionable = selection.activeBlueCellIds.has(entry.cellId);
+
+                return (
+                  <button
+                    key={entry.cellId}
+                    className={`sheet-cell blue-sum-cell ${isMarked ? "blue-sum-cell-filled" : ""} ${
+                      isActionable ? "sheet-cell-actionable" : ""
+                    }`}
+                    title={
+                      isMarked
+                        ? `蓝色和数 ${blueSums[entry.cellId]}，已填写`
+                        : isActionable
+                          ? `蓝色和数 ${blueSums[entry.cellId]}，点击即可落子`
+                          : `蓝色和数 ${blueSums[entry.cellId]}，当前不可落子`
+                    }
+                    onClick={() => onSelect({ zone: "blue", cellId: entry.cellId })}
+                    disabled={!isActionable}
+                  >
+                    {isMarked ? (
+                      <>
+                        <span className="blue-sum-mark">X</span>
+                        <span className="blue-sum-corner">{blueSums[entry.cellId]}</span>
+                      </>
+                    ) : (
+                      <span className="blue-sum-value">{blueSums[entry.cellId]}</span>
+                    )}
+                  </button>
+                );
+              }),
+            )}
+          </div>
+          <div className="blue-reward-rail">
+            {blueRowRewards.map((reward) => {
+              const claimed = player.sheet.blue.claimedRowBonuses.includes(reward.row);
+
+              return (
+                <div
+                  key={reward.row}
+                  className={`blue-reward-pill ${reward.tone} ${claimed ? "blue-reward-pill-claimed" : ""}`}
+                  title={`${reward.tooltip}${claimed ? "，已获得" : ""}`}
+                >
+                  <span className="blue-reward-pill-label">{reward.label}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        <div className="blue-bottom-row">
+          {blueBottomRewards.map((reward) => {
+            const claimed = player.sheet.blue.claimedColumnBonuses.includes(reward.column);
+            const displayColumn = reward.column === 4 ? 5 : reward.column;
+
+            return (
+              <div
+                key={reward.column}
+                className={`blue-bottom-reward ${reward.tone} ${
+                  reward.column === 4 ? "blue-bottom-reward-last-column" : ""
+                } ${claimed ? "blue-reward-pill-claimed" : ""}`}
+                title={`${reward.tooltip}${claimed ? "，已获得" : ""}`}
+                style={{ gridColumn: String(displayColumn) }}
               >
-                {blueSums[cellId]}
-              </button>
-            ) : (
-              <div key={`blue-empty-${rowIndex}-${columnIndex}`} className="sheet-cell sheet-cell-empty" />
-            ),
-          ),
-        )}
+                <span className="blue-reward-pill-label">{reward.label}</span>
+              </div>
+            );
+          })}
+        </div>
       </div>
       <div className="sheet-meta">
         <span>已记和数：{player.sheet.blue.markedSums.join(", ") || "暂无"}</span>
@@ -962,37 +1536,242 @@ function renderGreenSheet(
   onSelect: (placement: SheetPlacement) => void,
 ) {
   const filled = new Set(player.sheet.green.filledThresholds.map((value, index) => `${value}-${index}`));
+  const nextIndex = player.sheet.green.filledThresholds.length;
 
   return (
     <>
-      <div className="threshold-row">
-        {[1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 6].map((value, index) => {
-          const key = `${value}-${index}`;
-          return (
-            <button
-              key={key}
-              className={`threshold-pill ${filled.has(key) ? "threshold-pill-filled" : ""} ${
-                !filled.has(key) && index === player.sheet.green.filledThresholds.length && selection.activeGreen
-                  ? "sheet-cell-actionable"
-                  : ""
-              }`}
-              title={
-                filled.has(key)
-                  ? `绿色阈值 ${value}，已完成`
-                  : selection.activeGreen && index === player.sheet.green.filledThresholds.length
-                    ? `绿色阈值 ${value}，点击即可落子`
-                    : `绿色阈值 ${value}，当前不可落子`
-              }
-              onClick={() => onSelect({ zone: "green" })}
-              disabled={!(selection.activeGreen && index === player.sheet.green.filledThresholds.length)}
+      <div className="green-sheet-frame">
+        <div className="green-score-track">
+          {greenScoreTrack.map((score, index) => (
+            <div
+              key={score}
+              className={`green-score-node ${index < nextIndex ? "green-score-node-filled" : ""}`}
+              title={`绿色累计分值 ${score}`}
             >
-              {value}
-            </button>
-          );
-        })}
+              {score}
+            </div>
+          ))}
+        </div>
+        <div className="green-sheet-row">
+          <div className="green-arrow-cell" aria-hidden="true" />
+          <div className="green-threshold-strip">
+            {greenThresholdTrack.map((value, index) => {
+              const key = `${value}-${index}`;
+              const isFilled = filled.has(key);
+              const isActionable = !isFilled && index === nextIndex && selection.activeGreen;
+
+              return (
+                <button
+                  key={key}
+                  className={`green-threshold-cell ${isFilled ? "green-threshold-cell-filled" : ""} ${
+                    isActionable ? "sheet-cell-actionable" : ""
+                  }`}
+                  title={
+                    isFilled
+                      ? `绿色阈值 >=${value}，已完成`
+                      : isActionable
+                        ? `绿色阈值 >=${value}，点击即可落子`
+                        : `绿色阈值 >=${value}，当前不可落子`
+                  }
+                  onClick={() => onSelect({ zone: "green" })}
+                  disabled={!isActionable}
+                >
+                  {isFilled ? (
+                    <>
+                      <span className="green-threshold-mark">X</span>
+                      <span className="green-threshold-corner">{`>=${value}`}</span>
+                    </>
+                  ) : (
+                    <span className="green-threshold-label">{`>=${value}`}</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <div className="green-reward-strip">
+          <div className="green-reward-spacer" aria-hidden="true" />
+          <div className="green-reward-grid">
+            {greenRewardMarkers.map((marker) => (
+              <div
+                key={`${marker.column}-${marker.label}`}
+                className={`green-reward-token ${marker.tone} ${
+                  nextIndex >= marker.column ? "sheet-reward-claimed" : ""
+                }`}
+                style={{ gridColumn: String(marker.column) }}
+                title={`${marker.tooltip}${nextIndex >= marker.column ? "，已获得" : ""}`}
+              >
+                {marker.label}
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
       <div className="sheet-meta">
         <span>已完成阈值：{player.sheet.green.filledThresholds.join(", ") || "暂无"}</span>
+      </div>
+    </>
+  );
+}
+
+function renderOrangeSheet(
+  player: PlayerSheetSnapshot,
+  selection: SheetSelectionState,
+  onSelect: (placement: SheetPlacement) => void,
+  previewValue: number | null,
+) {
+  const values = player.sheet.orange.values;
+  const nextIndex = values.length;
+
+  return (
+    <>
+      <div className="orange-sheet-frame">
+        <div className="orange-sheet-row">
+          <div className="orange-arrow-cell" aria-hidden="true" />
+          <div className="orange-slot-strip">
+            {Array.from({ length: 11 }, (_, index) => {
+              const value = values[index];
+              const isFilled = typeof value === "number";
+              const isActionable = !isFilled && index === nextIndex && selection.activeOrange;
+              const multiplier = orangeMultiplierMarkers.find((marker) => marker.slot === index + 1);
+
+              return (
+                <div key={`orange-${index}`} className="orange-slot-wrap">
+                  <button
+                    className={`orange-slot-cell ${isFilled ? "orange-slot-cell-filled" : ""} ${
+                      isActionable ? "sheet-cell-actionable" : ""
+                    }`}
+                    title={
+                      isFilled
+                        ? `橙色第 ${index + 1} 格，已记录 ${value}`
+                        : isActionable
+                          ? `橙色第 ${index + 1} 格，点击即可填写 ${previewValue ?? "当前值"}`
+                          : `橙色第 ${index + 1} 格，当前不可填写`
+                    }
+                    onClick={() => onSelect({ zone: "orange" })}
+                    disabled={!isActionable}
+                  >
+                    {isFilled ? value : isActionable && typeof previewValue === "number" ? previewValue : ""}
+                  </button>
+                  {multiplier ? <span className="orange-multiplier">{multiplier.label}</span> : null}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        <div className="orange-reward-strip">
+          <div className="orange-reward-spacer" aria-hidden="true" />
+          <div className="orange-reward-grid">
+            {orangeRewardMarkers.map((marker) => (
+              <div
+                key={`${marker.slot}-${marker.label}`}
+                className={`orange-reward-token ${marker.tone} ${
+                  nextIndex >= marker.slot ? "sheet-reward-claimed" : ""
+                }`}
+                style={{ gridColumn: String(marker.slot) }}
+                title={`${marker.tooltip}${nextIndex >= marker.slot ? "，已获得" : ""}`}
+              >
+                {marker.label}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+      <div className="sheet-meta">
+        <span>{values.length > 0 ? `已记录：${values.join(", ")}` : "尚未填入橙色值。"}</span>
+        <span>
+          {selection.activeOrange
+            ? `当前可点击下一个空位提交${typeof previewValue === "number" ? `，将写入 ${previewValue}` : ""}`
+            : "当前不是这个区域的落子时机"}
+        </span>
+      </div>
+    </>
+  );
+}
+
+function renderPurpleSheet(
+  player: PlayerSheetSnapshot,
+  selection: SheetSelectionState,
+  onSelect: (placement: SheetPlacement) => void,
+  previewValue: number | null,
+) {
+  const values = player.sheet.purple.values;
+  const nextIndex = values.length;
+  const previousValue = values.at(-1) ?? null;
+
+  return (
+    <>
+      <div className="purple-sheet-frame">
+        <div className="purple-sheet-row">
+          <div className="purple-arrow-cell" aria-hidden="true" />
+          <div className="purple-slot-strip">
+            {Array.from({ length: 11 }, (_, index) => {
+              const value = values[index];
+              const isFilled = typeof value === "number";
+              const isActionable = !isFilled && index === nextIndex && selection.activePurple;
+
+              return (
+                <button
+                  key={`purple-${index}`}
+                  className={`purple-slot-cell ${isFilled ? "purple-slot-cell-filled" : ""} ${
+                    isActionable ? "sheet-cell-actionable" : ""
+                  }`}
+                  title={
+                    isFilled
+                      ? `紫色第 ${index + 1} 格，已记录 ${value}`
+                      : isActionable
+                        ? `紫色第 ${index + 1} 格，点击即可填写 ${previewValue ?? "当前值"}`
+                        : `紫色第 ${index + 1} 格，当前不可填写`
+                  }
+                  onClick={() => onSelect({ zone: "purple" })}
+                  disabled={!isActionable}
+                >
+                  {isFilled ? (
+                    <span className="purple-slot-value">{value}</span>
+                  ) : isActionable && typeof previewValue === "number" ? (
+                    <span className="purple-slot-value purple-slot-value-preview">{previewValue}</span>
+                  ) : (
+                    <span className="purple-slot-glyph" aria-hidden="true">
+                      S
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <div className="purple-reward-strip">
+          <div className="purple-reward-spacer" aria-hidden="true" />
+          <div className="purple-reward-grid">
+            {purpleRewardMarkers.map((marker) => (
+              <div
+                key={`${marker.slot}-${marker.label}`}
+                className={`purple-reward-token ${marker.tone} ${
+                  nextIndex >= marker.slot ? "sheet-reward-claimed" : ""
+                }`}
+                style={{ gridColumn: String(marker.slot) }}
+                title={`${marker.tooltip}${nextIndex >= marker.slot ? "，已获得" : ""}`}
+              >
+                {marker.label}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+      <div className="sheet-meta">
+        <span>{values.length > 0 ? `已记录：${values.join(", ")}` : "尚未填入紫色值。"}</span>
+        <span>
+          {selection.activePurple
+            ? `当前可点击下一个空位提交${typeof previewValue === "number" ? `，将写入 ${previewValue}` : ""}`
+            : "当前不是这个区域的落子时机"}
+        </span>
+        <span>
+          {typeof previousValue === "number"
+            ? previousValue === 6
+              ? "紫色上一个值是 6，本次可从 1 重新开始。"
+              : `紫色必须严格大于上一个值 ${previousValue}。`
+            : "紫色首格可直接填写当前紫骰值。"}
+        </span>
       </div>
     </>
   );
@@ -1004,9 +1783,11 @@ function renderTrackSheet(
   zone: "orange" | "purple",
   selection: SheetSelectionState,
   onSelect: (placement: SheetPlacement) => void,
+  previewValue: number | null,
 ) {
   const actionable = zone === "orange" ? selection.activeOrange : selection.activePurple;
   const maxSlots = 11;
+  const previousValue = values.at(-1) ?? null;
 
   return (
     <>
@@ -1016,6 +1797,12 @@ function renderTrackSheet(
           const isNextSlot = index === values.length;
           const isFilled = typeof value === "number";
           const isActionable = actionable && !isFilled && isNextSlot;
+          const displayValue = isFilled ? value : isActionable && typeof previewValue === "number" ? previewValue : index + 1;
+          const title = isFilled
+            ? `${zone} 第 ${index + 1} 格，已记录 ${value}`
+            : isActionable
+              ? `${zone} 第 ${index + 1} 格，点击即可填写 ${previewValue ?? "当前值"}`
+              : `${zone} 第 ${index + 1} 格，当前不可填写`;
 
           return (
             <button
@@ -1023,24 +1810,33 @@ function renderTrackSheet(
               className={`track-slot ${isFilled ? "track-slot-filled" : ""} ${
                 isActionable ? "sheet-cell-actionable" : ""
               }`}
-              title={
-                isFilled
-                  ? `${zone} 第 ${index + 1} 格，已记录 ${value}`
-                  : isActionable
-                    ? `${zone} 第 ${index + 1} 格，点击即可填写`
-                    : `${zone} 第 ${index + 1} 格，当前不可填写`
-              }
+              title={title}
               onClick={() => onSelect({ zone })}
               disabled={!isActionable}
             >
-              {isFilled ? value : index + 1}
+              {displayValue}
             </button>
           );
         })}
       </div>
       <div className="sheet-meta">
         <span>{values.length > 0 ? `已记录：${values.join(", ")}` : emptyText}</span>
-        <span>{actionable ? "当前可点击下一个空位提交" : "当前不是这个区域的落子时机"}</span>
+        <span>
+          {actionable
+            ? `当前可点击下一个空位提交${typeof previewValue === "number" ? `，将写入 ${previewValue}` : ""}`
+            : "当前不是这个区域的落子时机"}
+        </span>
+        {zone === "purple" ? (
+          <span>
+            {typeof previousValue === "number"
+              ? previousValue === 6
+                ? "紫色上一个值是 6，本次可从 1 重新开始。"
+                : `紫色必须严格大于上一个值 ${previousValue}。`
+              : "紫色首格可直接填写当前紫骰值。"}
+          </span>
+        ) : (
+          <span>橙色按获得顺序连续记录当前橙骰值。</span>
+        )}
       </div>
     </>
   );
@@ -1051,8 +1847,8 @@ function renderResourceSheet(player: PlayerSheetSnapshot) {
     <>
       <div className="resource-grid">
         <div className="resource-card">
-          <span>Wild</span>
-          <strong>{player.sheet.resources.wildMarks}</strong>
+          <span>Reroll</span>
+          <strong>{player.sheet.resources.rerolls}</strong>
         </div>
         <div className="resource-card">
           <span>Extra Die</span>
@@ -1065,11 +1861,9 @@ function renderResourceSheet(player: PlayerSheetSnapshot) {
       </div>
       <div className="sheet-meta">
         <span>待处理奖励：{player.sheet.pendingBonuses.length}</span>
+        <span>重投与额外骰资源都会累计；额外骰现在表示回合末再选一颗骰子的动作次数。</span>
         <span>
           已填黄格：{player.sheet.yellow.markedCellIds.length} / {YELLOW_CELL_IDS.length}
-        </span>
-        <span>
-          已填蓝格：{player.sheet.blue.markedCellIds.length} / {BLUE_CELL_IDS.length}
         </span>
       </div>
     </>
@@ -1172,7 +1966,7 @@ function buildSheetSelection(
       zoneIds.has("green") &&
       typeof greenValue === "number" &&
       typeof nextGreenThreshold === "number" &&
-      greenValue > nextGreenThreshold,
+      greenValue >= nextGreenThreshold,
     activeOrange: zoneIds.has("orange"),
     activePurple: zoneIds.has("purple")
   };
@@ -1186,12 +1980,111 @@ function isDieChoicePlayable(
   return hasAnyLegalTarget(buildSheetSelection(intent, gameState, player));
 }
 
+function getPassiveRegularSource(
+  gameState: GameStateSnapshot,
+  player: PlayerSheetSnapshot,
+) {
+  const silverPlatter = gameState.turn?.silverPlatter ?? [];
+  return silverPlatter.some((die) => isDieChoicePlayable({ kind: "passive", die }, gameState, player))
+    ? "silver"
+    : "active-fields";
+}
+
+function getPassiveRegularDice(
+  gameState: GameStateSnapshot,
+  player: PlayerSheetSnapshot,
+) {
+  return getPassiveRegularSource(gameState, player) === "silver"
+    ? (gameState.turn?.silverPlatter ?? [])
+    : (gameState.turn?.activeSelections ?? []);
+}
+
+function canUseExtraDieAction(
+  gameState: GameStateSnapshot,
+  currentPlayerId: string | null,
+  player: PlayerSheetSnapshot,
+  passiveStatus: "pending" | "picked" | "skipped" | null,
+) {
+  if (!currentPlayerId || player.sheet.resources.extraDice <= 0) {
+    return false;
+  }
+
+  if (!(gameState.phase === "awaiting_passive_picks" || gameState.phase === "awaiting_turn_end")) {
+    return false;
+  }
+
+  if (gameState.currentPlayerId !== currentPlayerId && passiveStatus === "pending") {
+    return false;
+  }
+
+  if (gameState.turn?.extraDicePassedByPlayer[currentPlayerId]) {
+    return false;
+  }
+
+  return getExtraDieCandidates(gameState, player, currentPlayerId).length > 0;
+}
+
+function getExtraDieCandidates(
+  gameState: GameStateSnapshot,
+  player: PlayerSheetSnapshot,
+  currentPlayerId: string,
+) {
+  const turn = gameState.turn;
+  if (!turn) {
+    return [];
+  }
+
+  const usedDieIds = new Set(turn.extraDiceUsedByPlayer[currentPlayerId] ?? []);
+  return [...turn.activeSelections, ...turn.silverPlatter].filter(
+    (die) =>
+      !usedDieIds.has(die.id) &&
+      isDieChoicePlayable({ kind: "extra", die, playerRole: "active" }, gameState, player),
+  );
+}
+
+function areTurnEndActionsComplete(gameState: GameStateSnapshot) {
+  if (!gameState.turn) {
+    return true;
+  }
+
+  return gameState.players.every((player) => !hasAvailableExtraDieOption(gameState, player));
+}
+
+function hasAvailableExtraDieOption(
+  gameState: GameStateSnapshot,
+  player: PlayerSheetSnapshot,
+) {
+  const turn = gameState.turn;
+  if (!turn || player.sheet.resources.extraDice <= 0) {
+    return false;
+  }
+
+  if (!(gameState.phase === "awaiting_passive_picks" || gameState.phase === "awaiting_turn_end")) {
+    return false;
+  }
+
+  if (turn.extraDicePassedByPlayer[player.playerId]) {
+    return false;
+  }
+
+  if (player.playerId !== turn.activePlayerId) {
+    const passiveSelection = turn.passiveSelections.find((selection) => selection.playerId === player.playerId);
+    if (!passiveSelection || passiveSelection.status === "pending") {
+      return false;
+    }
+  }
+
+  return getExtraDieCandidates(gameState, player, player.playerId).length > 0;
+}
+
 function getPlacementsForIntent(intent: SelectedIntent): SheetPlacement[] {
   if (intent.kind === "bonus") {
     return getBonusPlacements(intent.bonus);
   }
 
-  return intent.die.id === "white"
+  const die = getIntentDie(intent);
+
+  return die.id === "white"
     ? [
         { zone: "yellow" },
         { zone: "blue" },
@@ -1199,7 +2092,7 @@ function getPlacementsForIntent(intent: SelectedIntent): SheetPlacement[] {
         { zone: "orange" },
         { zone: "purple" }
       ]
-    : [{ zone: intent.die.id }];
+    : [{ zone: die.id }];
 }
 
 function getYellowValueForIntent(intent: SelectedIntent) {
@@ -1215,7 +2108,8 @@ function getYellowValueForIntent(intent: SelectedIntent) {
     return null;
   }
 
-  return intent.die.id === "yellow" || intent.die.id === "white" ? intent.die.value : null;
+  const die = getIntentDie(intent);
+  return die.id === "yellow" || die.id === "white" ? die.value : null;
 }
 
 function getBlueTotalForIntent(intent: SelectedIntent, gameState: GameStateSnapshot) {
@@ -1231,12 +2125,14 @@ function getBlueTotalForIntent(intent: SelectedIntent, gameState: GameStateSnaps
     return null;
   }
 
-  if (!(intent.die.id === "blue" || intent.die.id === "white")) {
+  const die = getIntentDie(intent);
+
+  if (!(die.id === "blue" || die.id === "white")) {
     return null;
   }
 
-  const blueValue = gameState.turn?.currentDiceValues.blue;
-  const whiteValue = gameState.turn?.currentDiceValues.white;
+  const blueValue = die.id === "blue" ? die.value : gameState.turn?.currentDiceValues.blue;
+  const whiteValue = die.id === "white" ? die.value : gameState.turn?.currentDiceValues.white;
   return typeof blueValue === "number" && typeof whiteValue === "number"
     ? blueValue + whiteValue
     : null;
@@ -1255,7 +2151,41 @@ function getGreenValueForIntent(intent: SelectedIntent) {
     return null;
   }
 
-  return intent.die.id === "green" || intent.die.id === "white" ? intent.die.value : null;
+  const die = getIntentDie(intent);
+  return die.id === "green" || die.id === "white" ? die.value : null;
+}
+
+function getTrackPreviewValue(
+  zone: "orange" | "purple",
+  intent: SelectedIntent | null,
+) {
+  if (!intent) {
+    return null;
+  }
+
+  if (intent.kind === "bonus") {
+    if (zone === "orange" && intent.bonus.type === "orange-number") {
+      return intent.bonus.value ?? 6;
+    }
+
+    if (zone === "purple" && intent.bonus.type === "purple-number") {
+      return intent.bonus.value ?? 6;
+    }
+
+    if (intent.bonus.type === "number-mark" && intent.bonus.allowedZones.includes(zone)) {
+      return intent.bonus.value;
+    }
+
+    return null;
+  }
+
+  const die = getIntentDie(intent);
+
+  if (zone === "orange") {
+    return die.id === "orange" || die.id === "white" ? die.value : null;
+  }
+
+  return die.id === "purple" || die.id === "white" ? die.value : null;
 }
 
 function renderPlacementButtons(
@@ -1305,12 +2235,18 @@ function describeSelectedIntent(intent: SelectedIntent | null) {
   }
 
   if (intent.kind === "bonus") {
+    if (isInstantBonus(intent.bonus)) {
+      return `奖励处理中：${describeBonus(intent.bonus)}。这个奖励不需要点纸面，直接在右侧立即领取即可。`;
+    }
+
     return `奖励处理中：${describeBonus(intent.bonus)}。请去左侧高亮区域点击落点。`;
   }
 
-  const modeLabel = intent.kind === "active" ? "主动" : "被动";
-  const whiteHint = intent.die.id === "white" ? " 白骰可跨区。" : "";
-  return `${modeLabel}已选 ${intent.die.id} = ${intent.die.value}。请去左侧高亮区域点击落点。${whiteHint}`;
+  const modeLabel =
+    intent.kind === "active" ? "主动" : intent.kind === "passive" ? "被动" : "额外骰";
+  const die = getIntentDie(intent);
+  const whiteHint = die.id === "white" ? " 白骰可跨区。" : "";
+  return `${modeLabel}已选 ${die.id} = ${die.value}。请去左侧高亮区域点击落点。${whiteHint}`;
 }
 
 function renderBonusButtons(
@@ -1338,18 +2274,18 @@ function getBonusPlacements(bonus: PendingSheetBonus): SheetPlacement[] {
       return [
         { zone: "yellow" },
         { zone: "blue" },
-        { zone: "green" },
-        { zone: "orange" },
-        { zone: "purple" }
+        { zone: "green" }
       ];
+    case "fox":
+    case "reroll":
+    case "extra-die":
+      return [];
     case "number-mark":
       return bonus.allowedZones.map((zone) => ({ zone }));
     case "orange-number":
       return [{ zone: "orange" }];
     case "purple-number":
       return [{ zone: "purple" }];
-    case "extra-die":
-      return [{ zone: "green" }];
     default:
       return [];
   }
@@ -1358,18 +2294,96 @@ function getBonusPlacements(bonus: PendingSheetBonus): SheetPlacement[] {
 function describeBonus(bonus: PendingSheetBonus) {
   switch (bonus.type) {
     case "wild-mark":
-      return `Wild mark from ${bonus.source}`;
+      return `万能填写：${formatBonusSource(bonus.source)}`;
     case "extra-die":
-      return `Extra die from ${bonus.source}`;
+      return `额外骰资源：${formatBonusSource(bonus.source)}`;
+    case "fox":
+      return `狐狸奖励：${formatBonusSource(bonus.source)}`;
+    case "reroll":
+      return `重投资源：${formatBonusSource(bonus.source)}`;
     case "number-mark":
-      return `Number mark ${bonus.value} from ${bonus.source}`;
+      return `数字奖励 ${bonus.value}：${formatBonusSource(bonus.source)}`;
     case "orange-number":
-      return `Orange bonus from ${bonus.source}`;
+      return `橙色数字 ${bonus.value ?? 6}：${formatBonusSource(bonus.source)}`;
     case "purple-number":
-      return `Purple bonus from ${bonus.source}`;
+      return `紫色数字 ${bonus.value ?? 6}：${formatBonusSource(bonus.source)}`;
     default:
-      return "Unknown bonus";
+      return "未知奖励";
   }
+}
+
+function isInstantBonus(bonus: PendingSheetBonus) {
+  return bonus.type === "extra-die" || bonus.type === "fox" || bonus.type === "reroll";
+}
+
+function formatBonusSource(source: string) {
+  if (source === "round-4-black-x") {
+    return "第 4 轮黑色 X";
+  }
+
+  if (source === "round-4-black-6") {
+    return "第 4 轮黑色 6";
+  }
+
+  if (source.startsWith("yellow-row-")) {
+    return `黄色第 ${source.slice(-1)} 行`;
+  }
+
+  if (source === "yellow-diagonal") {
+    return "黄色对角线";
+  }
+
+  if (source.startsWith("blue-row-")) {
+    return `蓝色第 ${source.slice(-1)} 行`;
+  }
+
+  if (source.startsWith("blue-column-")) {
+    return `蓝色第 ${source.slice(-1)} 列`;
+  }
+
+  if (source.startsWith("green-step-")) {
+    return `绿色第 ${source.split("-").at(-1)} 格`;
+  }
+
+  if (source.startsWith("orange-step-")) {
+    return `橙色第 ${source.split("-").at(-1)} 格`;
+  }
+
+  if (source.startsWith("purple-step-")) {
+    return `紫色第 ${source.split("-").at(-1)} 格`;
+  }
+
+  return source;
+}
+
+function describeLegalTargets(selection: SheetSelectionState) {
+  const parts: string[] = [];
+
+  if (selection.activeYellowCellIds.size > 0) {
+    parts.push(`黄色 ${selection.activeYellowCellIds.size} 格`);
+  }
+
+  if (selection.activeBlueCellIds.size > 0) {
+    parts.push(`蓝色 ${selection.activeBlueCellIds.size} 格`);
+  }
+
+  if (selection.activeGreen) {
+    parts.push("绿色下一阈值");
+  }
+
+  if (selection.activeOrange) {
+    parts.push("橙色下一格");
+  }
+
+  if (selection.activePurple) {
+    parts.push("紫色下一格");
+  }
+
+  return parts.join(" / ");
+}
+
+function getIntentDie(intent: Exclude<SelectedIntent, { kind: "bonus" }>) {
+  return intent.die;
 }
 
 function formatPlacementLabel(placement: SheetPlacement, die: DieValue) {
@@ -1386,6 +2400,21 @@ function describeDieAction(die: DieValue, mode: "active" | "passive") {
   return `${prefix} ${die.id} = ${die.value}${whiteHint}`;
 }
 
+function getRoundTrackerLabel(round: number | null) {
+  switch (round) {
+    case 1:
+      return "R";
+    case 2:
+      return "Extra Die";
+    case 3:
+      return "R";
+    case 4:
+      return "X / 6 二选一";
+    default:
+      return "无";
+  }
+}
+
 function getActionPrompt(args: {
   room: RoomSummary | null;
   gameState: GameStateSnapshot | null;
@@ -1393,6 +2422,7 @@ function getActionPrompt(args: {
   currentPlayerNickname: string;
   activePlayerNickname: string | null;
   passiveSelectionStatus: "pending" | "picked" | "skipped" | null;
+  passiveRegularSource: "silver" | "active-fields";
   hasPendingBonus: boolean;
   selectedIntent: SelectedIntent | null;
   selectedIntentHasLegalTarget: boolean;
@@ -1404,6 +2434,7 @@ function getActionPrompt(args: {
     currentPlayerNickname,
     activePlayerNickname,
     passiveSelectionStatus,
+    passiveRegularSource,
     hasPendingBonus,
     selectedIntent,
     selectedIntentHasLegalTarget
@@ -1414,15 +2445,19 @@ function getActionPrompt(args: {
   }
 
   if (hasPendingBonus) {
-    return `${currentPlayerNickname} 现在需要先解析奖励，完成后状态机会回到上一个阶段。`;
+    return pendingBonusResolutionMessage(gameState, currentPlayerNickname);
   }
 
   if (selectedIntent && !selectedIntentHasLegalTarget) {
     return selectedIntent.kind === "passive"
-      ? "当前选中的银盘骰子没有任何合法落点。请改选别的骰子，或直接跳过。"
+      ? passiveRegularSource === "active-fields"
+        ? "当前选中的主动骰位也没有合法落点。只有当银盘和主动骰位都不能用时，你才能跳过。"
+        : "当前选中的银盘骰子没有任何合法落点。请改选别的骰子；只有当银盘和主动骰位都不能用时，你才能跳过。"
       : selectedIntent.kind === "active"
-        ? "当前选中的主动骰子没有任何合法落点。请取消后改选别的骰子。"
-        : "当前选中的奖励没有任何合法解析位置。请取消后检查其他可处理路径。";
+        ? "当前选中的主动骰子没有任何合法落点。请取消后改选别的骰子，或把这次掷骰记为空过。"
+        : selectedIntent.kind === "extra"
+          ? "当前选中的额外骰没有任何合法落点。请改选别的候选骰子。"
+          : "当前选中的奖励没有任何合法解析位置。请取消后检查其他可处理路径。";
   }
 
   switch (gameState.phase) {
@@ -1436,13 +2471,15 @@ function getActionPrompt(args: {
         : `等待 ${activePlayerNickname ?? gameState.currentPlayerId} 选择主动骰子。`;
     case "awaiting_passive_picks":
       if (passiveSelectionStatus === "pending") {
-        return "现在轮到你处理银盘阶段。你可以选择一个骰子，或者跳过。";
+        return passiveRegularSource === "active-fields"
+          ? "现在轮到你处理被动阶段。由于银盘里没有任何合法骰子，你必须改从主动玩家骰位里拿 1 颗。"
+          : "现在轮到你处理银盘阶段。先完成一次常规被动选择；若你之后还有额外骰动作，可以继续使用。";
       }
       if (passiveSelectionStatus === "picked") {
         return "你已经提交了被动选择，等待其他玩家完成银盘阶段。";
       }
       if (passiveSelectionStatus === "skipped") {
-        return "你已经跳过本次银盘选择，等待其他玩家完成银盘阶段。";
+        return "你本次没有任何合法被动选择，等待其他玩家完成银盘阶段。";
       }
       return "当前处于银盘阶段，等待相关玩家完成被动选择。";
     case "awaiting_turn_end":
@@ -1458,4 +2495,16 @@ function getActionPrompt(args: {
     default:
       return "等待下一步动作。";
   }
+}
+
+function pendingBonusResolutionMessage(
+  gameState: GameStateSnapshot,
+  currentPlayerNickname: string,
+) {
+  const resolution = gameState.turn?.pendingBonusResolution;
+  if (resolution?.mode === "choice") {
+    return `${currentPlayerNickname} 现在需要先处理第 4 轮开局奖励，在黑色 X 和黑色 6 之间二选一并立即执行。`;
+  }
+
+  return `${currentPlayerNickname} 现在需要先解析奖励，完成后状态机会回到上一个阶段。`;
 }
