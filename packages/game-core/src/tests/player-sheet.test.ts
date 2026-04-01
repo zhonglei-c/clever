@@ -42,40 +42,86 @@ test("yellow area tracks row and diagonal bonuses on the explicit board layout",
     die: { id: "white", color: "white", value: 6 },
     currentDiceValues: { white: 6 }
   }).sheet;
-  sheet = applyPlacementToSheet(sheet, { zone: "yellow", cellId: "y-r1c3" }, {
+  const rowFinisher = applyPlacementToSheet(sheet, { zone: "yellow", cellId: "y-r1c3" }, {
     die: { id: "yellow", color: "yellow", value: 5 },
     currentDiceValues: { yellow: 5 }
-  }).sheet;
-  const rowFinisher = applyPlacementToSheet(sheet, { zone: "yellow", cellId: "y-r1c4" }, {
-    die: { id: "yellow", color: "yellow", value: 2 },
-    currentDiceValues: { yellow: 2 }
   });
 
   assert.deepEqual(rowFinisher.sheet.yellow.claimedRowBonuses, [1]);
   assert.deepEqual(rowFinisher.triggeredBonuses, [
     {
-      type: "number-mark",
-      value: 3,
-      allowedZones: ["yellow", "blue", "green"],
+      type: "wild-mark",
       source: "yellow-row-1"
     }
   ]);
 
   const diagonalStart = rowFinisher.sheet;
-  const afterDiagonal2 = applyPlacementToSheet(diagonalStart, { zone: "yellow", cellId: "y-r2c2" }, {
-    die: { id: "yellow", color: "yellow", value: 5 },
-    currentDiceValues: { yellow: 5 }
+  const afterDiagonal2 = applyPlacementToSheet(diagonalStart, { zone: "yellow", cellId: "y-r2c1" }, {
+    die: { id: "yellow", color: "yellow", value: 1 },
+    currentDiceValues: { yellow: 1 }
   }).sheet;
-  const diagonalFinisher = applyPlacementToSheet(afterDiagonal2, { zone: "yellow", cellId: "y-r3c3" }, {
-    die: { id: "white", color: "white", value: 4 },
-    currentDiceValues: { white: 4 }
+  sheet = applyPlacementToSheet(afterDiagonal2, { zone: "yellow", cellId: "y-r2c4" }, {
+    die: { id: "yellow", color: "yellow", value: 2 },
+    currentDiceValues: { yellow: 2 }
+  }).sheet;
+  const diagonalFinisher = applyPlacementToSheet(sheet, { zone: "yellow", cellId: "y-r3c4" }, {
+    die: { id: "white", color: "white", value: 6 },
+    currentDiceValues: { white: 6 }
   });
 
   assert.equal(diagonalFinisher.sheet.yellow.claimedDiagonalBonus, true);
   assert.deepEqual(diagonalFinisher.triggeredBonuses, [
     {
-      type: "wild-mark",
+      type: "extra-die",
       source: "yellow-diagonal"
+    }
+  ]);
+});
+
+test("yellow area tracks all four visual row rewards from the restored 4x4 layout", () => {
+  let sheet = createEmptyPlayerSheet();
+
+  sheet = applyPlacementToSheet(sheet, { zone: "yellow", cellId: "y-r2c3" }, {
+    die: { id: "yellow", color: "yellow", value: 1 },
+    currentDiceValues: { yellow: 1 }
+  }).sheet;
+  sheet = applyPlacementToSheet(sheet, { zone: "yellow", cellId: "y-r2c4" }, {
+    die: { id: "yellow", color: "yellow", value: 2 },
+    currentDiceValues: { yellow: 2 }
+  }).sheet;
+  const thirdRowFinisher = applyPlacementToSheet(sheet, { zone: "yellow", cellId: "y-r3c1" }, {
+    die: { id: "yellow", color: "yellow", value: 4 },
+    currentDiceValues: { yellow: 4 }
+  });
+
+  assert.deepEqual(thirdRowFinisher.sheet.yellow.claimedRowBonuses, [3]);
+  assert.deepEqual(thirdRowFinisher.triggeredBonuses, [
+    {
+      type: "wild-mark",
+      source: "yellow-row-3"
+    }
+  ]);
+
+  sheet = thirdRowFinisher.sheet;
+  sheet = applyPlacementToSheet(sheet, { zone: "yellow", cellId: "y-r3c2" }, {
+    die: { id: "yellow", color: "yellow", value: 3 },
+    currentDiceValues: { yellow: 3 }
+  }).sheet;
+  sheet = applyPlacementToSheet(sheet, { zone: "yellow", cellId: "y-r3c3" }, {
+    die: { id: "yellow", color: "yellow", value: 4 },
+    currentDiceValues: { yellow: 4 }
+  }).sheet;
+
+  const fourthRowFinisher = applyPlacementToSheet(sheet, { zone: "yellow", cellId: "y-r3c4" }, {
+    die: { id: "yellow", color: "yellow", value: 6 },
+    currentDiceValues: { yellow: 6 }
+  });
+
+  assert.deepEqual(fourthRowFinisher.sheet.yellow.claimedRowBonuses.sort(), [3, 4]);
+  assert.deepEqual(fourthRowFinisher.triggeredBonuses, [
+    {
+      type: "fox",
+      source: "yellow-row-4"
     }
   ]);
 });
@@ -314,19 +360,19 @@ test("scorePlayerSheet combines zone scores and fox bonus", () => {
 
   sheet.yellow.markedCellIds = [
     "y-r1c1",
-    "y-r2c1",
-    "y-r3c1",
+    "y-r1c4",
+    "y-r2c3",
     "y-r1c2",
-    "y-r2c2",
+    "y-r2c1",
     "y-r3c2"
   ];
   sheet.yellow.marksByValue = {
-    1: 1,
-    2: 2,
-    3: 0,
+    1: 2,
+    2: 1,
+    3: 2,
     4: 0,
-    5: 1,
-    6: 2
+    5: 0,
+    6: 1
   };
   sheet.blue.markedCellIds = ["b-r1c1", "b-r1c2", "b-r2c1", "b-r2c3"];
   sheet.blue.markedSums = [2, 3, 4, 5];

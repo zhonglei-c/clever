@@ -16,7 +16,7 @@ import {
 export interface YellowZoneState {
   markedCellIds: YellowCellId[];
   marksByValue: Record<1 | 2 | 3 | 4 | 5 | 6, number>;
-  claimedRowBonuses: Array<1 | 2 | 3>;
+  claimedRowBonuses: Array<1 | 2 | 3 | 4>;
   claimedDiagonalBonus: boolean;
 }
 
@@ -144,29 +144,28 @@ export {
   YELLOW_CELL_IDS
 } from "./score-sheet-spec";
 
-const YELLOW_COLUMN_SCORES = [10, 14, 16, 20] as const;
-const YELLOW_ROW_BONUSES: Record<1 | 2 | 3, NumberMarkBonus> = {
+const YELLOW_ROW_BONUSES: Record<1 | 2 | 3 | 4, PendingSheetBonus> = {
   1: {
-    type: "number-mark",
-    value: 3,
-    allowedZones: ["yellow", "blue", "green"],
+    type: "wild-mark",
     source: "yellow-row-1"
   },
   2: {
     type: "number-mark",
-    value: 6,
+    value: 4,
     allowedZones: ["yellow", "blue", "green"],
     source: "yellow-row-2"
   },
   3: {
-    type: "number-mark",
-    value: 5,
-    allowedZones: ["yellow", "blue", "green"],
+    type: "wild-mark",
     source: "yellow-row-3"
+  },
+  4: {
+    type: "fox",
+    source: "yellow-row-4"
   }
 };
-const YELLOW_DIAGONAL_BONUS: WildMarkBonus = {
-  type: "wild-mark",
+const YELLOW_DIAGONAL_BONUS: ExtraDieBonus = {
+  type: "extra-die",
   source: "yellow-diagonal"
 };
 const GREEN_PROGRESS_BONUSES: Partial<Record<number, PendingSheetBonus[]>> = {
@@ -847,7 +846,7 @@ function resolveBlueCell(
 
 function recalculateYellowZone(yellow: YellowZoneState): YellowZoneState {
   const marksByValue = countYellowValues(yellow.markedCellIds);
-  const claimedRowBonuses = ([1, 2, 3] as const).filter((row) =>
+  const claimedRowBonuses = ([1, 2, 3, 4] as const).filter((row) =>
     YELLOW_CELLS.filter((cell) => cell.row === row).every((cell) => yellow.markedCellIds.includes(cell.id)),
   );
   const claimedDiagonalBonus = YELLOW_CELLS.filter((cell) => cell.onDiagonal).every((cell) =>

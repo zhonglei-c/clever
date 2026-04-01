@@ -1,9 +1,9 @@
 import {
+  BLUE_BOARD_DISPLAY,
+  BLUE_CONNECTOR_DISPLAY,
   BLUE_COLUMN_REWARD_DISPLAY,
-  BLUE_COUNT_TRACK,
-  BLUE_DISPLAY_GRID,
+  BLUE_PROGRESS_DISPLAY,
   BLUE_ROW_REWARD_DISPLAY,
-  BLUE_SCORE_TRACK,
   BLUE_SUM_BY_CELL,
   GREEN_REWARD_MARKERS,
   GREEN_SCORE_TRACK,
@@ -189,10 +189,7 @@ function ScoreBox({
 function RewardGlyph({ token }: { token: string }) {
   if (token === "X") {
     return (
-      <svg viewBox="0 0 24 24" className="sheet-reward-glyph-svg" aria-hidden="true">
-        <path d="M6 6 18 18" />
-        <path d="M18 6 6 18" />
-      </svg>
+      <SheetCrossGlyph className="sheet-reward-glyph-svg" />
     );
   }
 
@@ -218,24 +215,45 @@ function RewardGlyph({ token }: { token: string }) {
   return <span className="sheet-reward-glyph-text">{token}</span>;
 }
 
+function SheetCrossGlyph({ className }: { className: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
+      <path d="M6 6 18 18" />
+      <path d="M18 6 6 18" />
+    </svg>
+  );
+}
+
+function FormulaDieGlyph({ tone }: { tone: "blue" | "white" }) {
+  return (
+    <svg viewBox="0 0 24 24" className={`blue-formula-die-svg blue-formula-die-svg-${tone}`} aria-hidden="true">
+      <rect x="3.5" y="3.5" width="17" height="17" rx="4.2" />
+      <circle cx="12" cy="12" r="2.15" />
+    </svg>
+  );
+}
+
 function renderYellowZone(
   player: PlayerSheetSnapshot,
   selection: ScoreSheetBoardSelection,
   onSelect: (placement: SheetPlacement) => void,
 ) {
   const marked = new Set(player.sheet.yellow.markedCellIds);
-  const completedRows = new Set(
-    YELLOW_DISPLAY_GRID.map((row, rowIndex) => {
-      const fillable = row.filter((entry) => entry.kind === "fillable");
-      return fillable.every((entry) => marked.has(entry.cellId)) ? rowIndex + 1 : null;
-    }).filter((value): value is number => value !== null),
-  );
+  const completedRows = new Set(player.sheet.yellow.claimedRowBonuses);
 
   return (
     <div className="yellow-sheet-frame">
+      <div className="yellow-diagonal-connector" aria-hidden="true" />
       <div className="yellow-sheet-visual">
         <div className="yellow-grid-shell">
-          <YellowGridBackdrop />
+          <div className="yellow-row-connector yellow-row-connector-1" aria-hidden="true" />
+          <div className="yellow-row-connector yellow-row-connector-2" aria-hidden="true" />
+          <div className="yellow-row-connector yellow-row-connector-3" aria-hidden="true" />
+          <div className="yellow-row-connector yellow-row-connector-4" aria-hidden="true" />
+          <div className="yellow-column-connector yellow-column-connector-1" aria-hidden="true" />
+          <div className="yellow-column-connector yellow-column-connector-2" aria-hidden="true" />
+          <div className="yellow-column-connector yellow-column-connector-3" aria-hidden="true" />
+          <div className="yellow-column-connector yellow-column-connector-4" aria-hidden="true" />
           <div className="sheet-grid yellow-grid">
             {YELLOW_DISPLAY_GRID.flatMap((row) =>
               row.map((entry) => {
@@ -246,7 +264,12 @@ function renderYellowZone(
                       className="yellow-slot yellow-slot-diagonal"
                     >
                       <div className="yellow-cell-face yellow-cell-printed" title="Printed X space">
-                        <span className="yellow-cell-mark">X</span>
+                        <span className="yellow-cell-mark" aria-hidden="true">
+                          <svg viewBox="0 0 24 24" className="yellow-cell-cross-svg">
+                            <path d="M6 6 18 18" />
+                            <path d="M18 6 6 18" />
+                          </svg>
+                        </span>
                       </div>
                     </div>
                   );
@@ -278,7 +301,12 @@ function renderYellowZone(
                       {isMarked ? (
                         <>
                           <span className="yellow-cell-number yellow-cell-number-crossed">{printedValue}</span>
-                          <span className="yellow-cell-cross">X</span>
+                          <span className="yellow-cell-cross" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" className="yellow-cell-cross-svg">
+                              <path d="M6 6 18 18" />
+                              <path d="M18 6 6 18" />
+                            </svg>
+                          </span>
                         </>
                       ) : (
                         <span className="yellow-cell-number">{printedValue}</span>
@@ -309,7 +337,11 @@ function renderYellowZone(
       <div className="yellow-bottom-row">
         <div className="yellow-score-strip">
           {YELLOW_COLUMN_SCORES.map((score, index) => (
-            <div key={score} className="yellow-score-chip" title={`Yellow column ${index + 1} scores ${score}`}>
+            <div
+              key={score}
+              className="yellow-score-chip yellow-score-chip-connected"
+              title={`Yellow column ${index + 1} scores ${score}`}
+            >
               <span className="yellow-score-chip-value">{score}</span>
             </div>
           ))}
@@ -336,157 +368,176 @@ function renderBlueZone(
 ) {
   const marked = new Set(player.sheet.blue.markedCellIds);
   const filledCount = player.sheet.blue.markedCellIds.length;
-  const completedRows = new Set(
-    BLUE_DISPLAY_GRID.map((row, rowIndex) => {
-      const fillable = row.filter((entry) => entry.kind === "fillable");
-      return fillable.every((entry) => marked.has(entry.cellId)) ? rowIndex + 1 : null;
-    }).filter((value): value is number => value !== null),
-  );
-  const completedColumns = new Set(
-    [1, 2, 3, 4].filter((column) =>
-      BLUE_DISPLAY_GRID.every((row) => {
-        const entry = row[column - 1];
-        return entry.kind !== "fillable" || marked.has(entry.cellId);
-      }),
-    ),
-  );
+  const completedRows = new Set(player.sheet.blue.claimedRowBonuses);
+  const completedColumns = new Set(player.sheet.blue.claimedColumnBonuses);
 
   return (
     <div className="blue-sheet-frame">
-      <div className="blue-score-track">
-        {BLUE_SCORE_TRACK.map((score, index) => (
+      <div className="blue-progress-track">
+        {BLUE_PROGRESS_DISPLAY.map((step, index) => (
           <div
-            key={score}
-            className={`blue-score-node ${index < filledCount ? "blue-score-node-filled" : ""}`}
-            title={`Blue score step ${index + 1}`}
+            key={step.step}
+            className="blue-progress-step"
+            style={{ gridColumn: String(step.column) }}
+            title={`Blue score step ${step.step}`}
           >
-            {score}
-          </div>
-        ))}
-      </div>
-      <div className="blue-count-track">
-        {BLUE_COUNT_TRACK.map((count) => (
-          <span key={count} className="blue-count-label">
-            {count}
-          </span>
-        ))}
-      </div>
-      <div className="blue-sheet-visual">
-        <div className="blue-grid-shell">
-          <BlueGridBackdrop />
-          <div className="sheet-grid blue-grid">
-            {BLUE_DISPLAY_GRID.flatMap((row) =>
-              row.map((entry) => {
-                if (entry.kind === "formula") {
-                  return (
-                    <div key={entry.id} className="blue-formula-tile" title="Blue die plus white die">
-                      <span className="blue-formula-die blue-formula-die-blue" />
-                      <span className="blue-formula-plus">+</span>
-                      <span className="blue-formula-die blue-formula-die-white" />
-                    </div>
-                  );
-                }
-
-                const isMarked = marked.has(entry.cellId);
-                const isActionable = selection.activeBlueCellIds.has(entry.cellId);
-                const sum = BLUE_SUM_BY_CELL[entry.cellId];
-
-                return (
-                  <button
-                    key={entry.cellId}
-                    className={`sheet-cell blue-sum-cell ${isMarked ? "blue-sum-cell-filled" : ""} ${
-                      isActionable ? "sheet-cell-actionable" : ""
-                    }`}
-                    title={
-                      isMarked
-                        ? `Blue sum ${sum} already crossed off`
-                        : isActionable
-                          ? `Cross off blue sum ${sum}`
-                          : `Blue sum ${sum} is not available right now`
-                    }
-                    onClick={() => onSelect({ zone: "blue", cellId: entry.cellId })}
-                    disabled={!isActionable}
-                  >
-                    {isMarked ? (
-                      <>
-                        <span className="blue-sum-number blue-sum-number-crossed">{sum}</span>
-                        <span className="blue-sum-cross">X</span>
-                      </>
-                    ) : (
-                      <span className="blue-sum-number">{sum}</span>
-                    )}
-                  </button>
-                );
-              }),
-            )}
-          </div>
-        </div>
-        <div className="blue-reward-rail">
-          {BLUE_ROW_REWARD_DISPLAY.map((reward) => (
-            <div
-              key={reward.row}
-              className={`blue-reward-pill ${reward.tone} ${
-                completedRows.has(reward.row) ? "blue-reward-pill-claimed" : ""
-              }`}
-              title={`Blue row ${reward.row} reward`}
-            >
-              <span className="blue-reward-pill-label">
-                <RewardGlyph token={reward.label} />
-              </span>
+            <div className={`blue-score-node ${index < filledCount ? "blue-score-node-filled" : ""}`}>
+              {step.score}
             </div>
-          ))}
-        </div>
-      </div>
-      <div className="blue-bottom-row blue-bottom-row-sheet">
-        {BLUE_COLUMN_REWARD_DISPLAY.map((reward) => (
-          <div
-            key={reward.column}
-            className={`blue-bottom-reward ${reward.tone} ${
-              completedColumns.has(reward.column) ? "blue-reward-pill-claimed" : ""
-            }`}
-            style={{ gridColumn: String(reward.column) }}
-            title={`Blue column ${reward.column} reward`}
-          >
-            <span className="blue-reward-pill-label">
-              <RewardGlyph token={reward.label} />
-            </span>
+            <span className="blue-count-label">{step.count}</span>
           </div>
         ))}
       </div>
+      <div className="blue-board-shell">
+        <BlueBoardBackdrop />
+        <div className="blue-board-grid">
+          {BLUE_BOARD_DISPLAY.map((slot) => {
+            const slotStyle = {
+              gridColumn: String(slot.column),
+              gridRow: String(slot.row)
+            };
+
+            if (slot.kind === "formula") {
+              return (
+                <div
+                  key={slot.id}
+                  className="blue-formula-tile"
+                  style={slotStyle}
+                  title="Blue die plus white die"
+                >
+                  <span className="blue-formula-die blue-formula-die-blue">
+                    <FormulaDieGlyph tone="blue" />
+                  </span>
+                  <span className="blue-formula-plus">+</span>
+                  <span className="blue-formula-die blue-formula-die-white">
+                    <FormulaDieGlyph tone="white" />
+                  </span>
+                </div>
+              );
+            }
+
+            if (slot.kind === "fillable" && slot.cellId) {
+              const isMarked = marked.has(slot.cellId);
+              const isActionable = selection.activeBlueCellIds.has(slot.cellId);
+              const sum = BLUE_SUM_BY_CELL[slot.cellId];
+
+              return (
+                <button
+                  key={slot.id}
+                  className={`sheet-cell blue-sum-cell ${isMarked ? "blue-sum-cell-filled" : ""} ${
+                    isActionable ? "sheet-cell-actionable" : ""
+                  }`}
+                  style={slotStyle}
+                  title={
+                    isMarked
+                      ? `Blue sum ${sum} already crossed off`
+                      : isActionable
+                        ? `Cross off blue sum ${sum}`
+                        : `Blue sum ${sum} is not available right now`
+                  }
+                  onClick={() => onSelect({ zone: "blue", cellId: slot.cellId })}
+                  disabled={!isActionable}
+                >
+                  {isMarked ? (
+                    <>
+                      <span className="blue-sum-number blue-sum-number-crossed">{sum}</span>
+                      <span className="blue-sum-cross" aria-hidden="true">
+                        <SheetCrossGlyph className="blue-sum-cross-svg" />
+                      </span>
+                    </>
+                  ) : (
+                    <span className="blue-sum-number">{sum}</span>
+                  )}
+                </button>
+              );
+            }
+
+            if (slot.kind === "row-reward" && slot.rewardRow) {
+              const reward = BLUE_ROW_REWARD_DISPLAY.find((entry) => entry.row === slot.rewardRow);
+
+              if (!reward) {
+                return null;
+              }
+
+              return (
+                <div
+                  key={slot.id}
+                  className={`blue-reward-pill ${reward.tone} ${
+                    completedRows.has(reward.row) ? "blue-reward-pill-claimed" : ""
+                  }`}
+                  style={slotStyle}
+                  title={`Blue row ${reward.row} reward`}
+                >
+                  <span className="blue-reward-pill-label">
+                    <RewardGlyph token={reward.label} />
+                  </span>
+                </div>
+              );
+            }
+
+            if (slot.kind === "column-reward" && slot.rewardColumn) {
+              const reward = BLUE_COLUMN_REWARD_DISPLAY.find((entry) => entry.column === slot.rewardColumn);
+
+              if (!reward) {
+                return null;
+              }
+
+              return (
+                <div
+                  key={slot.id}
+                  className={`blue-bottom-reward ${reward.tone} ${
+                    completedColumns.has(reward.column) ? "blue-reward-pill-claimed" : ""
+                  }`}
+                  style={slotStyle}
+                  title={`Blue column ${reward.column} reward`}
+                >
+                  <span className="blue-reward-pill-label">
+                    <RewardGlyph token={reward.label} />
+                  </span>
+                </div>
+              );
+            }
+
+            return null;
+          })}
+        </div>
+      </div>
     </div>
   );
 }
 
-function YellowGridBackdrop() {
-  return (
-    <div className="yellow-grid-backdrop" aria-hidden="true">
-      <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="yellow-grid-backdrop-svg">
-        <path d="M12 12H88V88" className="yellow-grid-backdrop-stroke" />
-        <path d="M12 32H68" className="yellow-grid-backdrop-stroke" />
-        <path d="M32 12V68" className="yellow-grid-backdrop-stroke" />
-        <path d="M12 52H48" className="yellow-grid-backdrop-stroke" />
-        <path d="M52 32V88" className="yellow-grid-backdrop-stroke" />
-        <path d="M32 72H88" className="yellow-grid-backdrop-stroke" />
-        <path d="M72 12V48" className="yellow-grid-backdrop-stroke" />
-      </svg>
-    </div>
-  );
-}
+function BlueBoardBackdrop() {
+  const cellCenterX = (column: number) => (column - 0.5) * 20;
+  const cellCenterY = (row: number) => (row - 0.5) * 25;
 
-function BlueGridBackdrop() {
   return (
-    <div className="blue-grid-backdrop" aria-hidden="true">
-      <svg viewBox="0 0 100 78" preserveAspectRatio="none" className="blue-grid-backdrop-svg">
-        <rect x="5" y="5" width="90" height="68" rx="12" className="blue-grid-backdrop-frame" />
-        <path d="M30 5V73" className="blue-grid-backdrop-line" />
-        <path d="M52.5 5V73" className="blue-grid-backdrop-line" />
-        <path d="M75 5V73" className="blue-grid-backdrop-line" />
-        <path d="M5 27.7H95" className="blue-grid-backdrop-line" />
-        <path d="M5 50.3H95" className="blue-grid-backdrop-line" />
-        <circle cx="16" cy="16" r="3.2" className="blue-grid-backdrop-dot" />
-        <circle cx="84" cy="16" r="3.2" className="blue-grid-backdrop-dot" />
-        <circle cx="16" cy="62" r="3.2" className="blue-grid-backdrop-dot" />
-        <circle cx="84" cy="62" r="3.2" className="blue-grid-backdrop-dot" />
+    <div className="blue-board-backdrop" aria-hidden="true">
+      <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="blue-board-backdrop-svg">
+        <rect x="2" y="2" width="76" height="71" rx="11" className="blue-board-backdrop-main" />
+        <rect x="82" y="6" width="16" height="63" rx="8.5" className="blue-board-backdrop-rail" />
+        <rect x="2" y="77" width="76" height="21" rx="10.5" className="blue-board-backdrop-bottom" />
+        {BLUE_CONNECTOR_DISPLAY.map((connector) => {
+          const x1 = cellCenterX(connector.fromColumn);
+          const y1 = cellCenterY(connector.fromRow);
+          const x2 = cellCenterX(connector.toColumn);
+          const y2 = cellCenterY(connector.toRow);
+
+          if (connector.axis === "row") {
+            return (
+              <g key={connector.id} className="blue-board-backdrop-connector">
+                <path d={`M ${x1} ${y1} H ${x2 - 3.4}`} className="blue-board-backdrop-line" />
+                <path d={`M ${x2 - 6.8} ${y2 - 4.8} L ${x2} ${y2} L ${x2 - 6.8} ${y2 + 4.8}`} className="blue-board-backdrop-arrow" />
+              </g>
+            );
+          }
+
+          return (
+            <g key={connector.id} className="blue-board-backdrop-connector">
+              <path d={`M ${x1} ${y1} V ${y2 - 3.8}`} className="blue-board-backdrop-line" />
+              <path d={`M ${x2 - 4.6} ${y2 - 7.2} L ${x2} ${y2} L ${x2 + 4.6} ${y2 - 7.2}`} className="blue-board-backdrop-arrow" />
+            </g>
+          );
+        })}
       </svg>
     </div>
   );

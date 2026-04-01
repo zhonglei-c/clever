@@ -242,6 +242,14 @@
 - Verification after this pass: `npm run typecheck`, `npm run build`, and `npm run test` all passed.
 - Next recommended step: keep pushing the board itself toward SVG-native interior framing, especially the yellow connectors and the blue/green/orange/purple track scaffolding, so fewer of the original paper cues rely on box-model tricks.
 
+## Handoff Note - 2026-04-01 (Blue Grid Spec + Connector Pass)
+
+- `packages/game-core/src/rules/score-sheet-spec.ts` now owns a dedicated blue display spec: the top progress track, central `2-12` board, right-side row rewards, bottom column rewards, and the connector map all come from explicit coordinates instead of ad-hoc JSX ordering.
+- `ScoreSheetBoard.tsx` now renders the blue area from that shared spec. The main number tiles, formula tile, right reward rail, and bottom reward row all live in one unified `5 x 4` shell, while the dark row/column arrows are painted in a separate SVG underlay layer behind the nodes.
+- `global.css` now gives blue its own grid variables, scalloped top score badges, board-native formula dice glyphs, unified `X` stroke styling, and underlay-backed right/bottom panels so the blue area reads much closer to the printed sheet and better matches the newer yellow layout language.
+- Verification after this pass: `npm run typecheck`, `npm run build`, and `npm run test` all passed.
+- Next recommended step: keep refining icon fidelity across yellow / blue together, then decide whether green / orange / purple should also move from their current “track shell” spec to explicit connector specs for full board consistency.
+
 ## Handoff Note - 2026-04-01 (Chrome + Zone Header Pass)
 
 - `ScoreSheetBoard.tsx` now renders through a dedicated board chrome layer plus a `score-sheet-board-content` grid. The live sheet has an inline SVG paper frame with top and bottom rules, corner dots, and a more unified printed-board silhouette.

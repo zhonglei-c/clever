@@ -29,7 +29,7 @@ export type BlueCellId =
 
 export interface YellowCellDefinition {
   id: YellowCellId;
-  row: 1 | 2 | 3;
+  row: 1 | 2 | 3 | 4;
   column: 1 | 2 | 3 | 4;
   value: 1 | 2 | 3 | 4 | 5 | 6;
   onDiagonal: boolean;
@@ -61,6 +61,33 @@ export type BlueDisplayCell =
       kind: "fillable";
       cellId: BlueCellId;
     };
+
+export interface BlueProgressDisplayStep {
+  step: number;
+  column: number;
+  score: number;
+  count: number;
+}
+
+export interface BlueBoardDisplaySlot {
+  id: string;
+  kind: "formula" | "fillable" | "row-reward" | "column-reward";
+  row: 1 | 2 | 3 | 4;
+  column: 1 | 2 | 3 | 4 | 5;
+  cellId?: BlueCellId;
+  rewardRow?: 1 | 2 | 3;
+  rewardColumn?: 1 | 2 | 3 | 4;
+}
+
+export interface BlueConnectorDisplaySpec {
+  id: string;
+  axis: "row" | "column";
+  fromRow: 1 | 2 | 3 | 4;
+  fromColumn: 1 | 2 | 3 | 4 | 5;
+  toRow: 1 | 2 | 3 | 4;
+  toColumn: 1 | 2 | 3 | 4 | 5;
+  arrow: "right" | "down";
+}
 
 export interface IndexedMarkerSpec {
   index: number;
@@ -103,22 +130,22 @@ export const YELLOW_CELLS: YellowCellDefinition[] = [
   { id: "y-r1c1", row: 1, column: 1, value: 3, onDiagonal: true },
   { id: "y-r1c2", row: 1, column: 2, value: 6, onDiagonal: false },
   { id: "y-r1c3", row: 1, column: 3, value: 5, onDiagonal: false },
-  { id: "y-r1c4", row: 1, column: 4, value: 2, onDiagonal: false },
-  { id: "y-r2c1", row: 2, column: 1, value: 1, onDiagonal: false },
-  { id: "y-r2c2", row: 2, column: 2, value: 5, onDiagonal: true },
-  { id: "y-r2c3", row: 2, column: 3, value: 1, onDiagonal: false },
-  { id: "y-r2c4", row: 2, column: 4, value: 2, onDiagonal: false },
-  { id: "y-r3c1", row: 3, column: 1, value: 4, onDiagonal: false },
-  { id: "y-r3c2", row: 3, column: 2, value: 3, onDiagonal: false },
-  { id: "y-r3c3", row: 3, column: 3, value: 4, onDiagonal: true },
-  { id: "y-r3c4", row: 3, column: 4, value: 6, onDiagonal: false }
+  { id: "y-r1c4", row: 2, column: 1, value: 2, onDiagonal: false },
+  { id: "y-r2c1", row: 2, column: 2, value: 1, onDiagonal: true },
+  { id: "y-r2c2", row: 2, column: 4, value: 5, onDiagonal: false },
+  { id: "y-r2c3", row: 3, column: 1, value: 1, onDiagonal: false },
+  { id: "y-r2c4", row: 3, column: 3, value: 2, onDiagonal: true },
+  { id: "y-r3c1", row: 3, column: 4, value: 4, onDiagonal: false },
+  { id: "y-r3c2", row: 4, column: 2, value: 3, onDiagonal: false },
+  { id: "y-r3c3", row: 4, column: 3, value: 4, onDiagonal: false },
+  { id: "y-r3c4", row: 4, column: 4, value: 6, onDiagonal: true }
 ];
 export const YELLOW_CELL_IDS = YELLOW_CELLS.map((cell) => cell.id);
 export const YELLOW_COLUMNS = [
-  ["y-r1c1", "y-r2c1", "y-r3c1"],
-  ["y-r1c2", "y-r2c2", "y-r3c2"],
-  ["y-r1c3", "y-r2c3", "y-r3c3"],
-  ["y-r1c4", "y-r2c4", "y-r3c4"]
+  ["y-r1c1", "y-r1c4", "y-r2c3"],
+  ["y-r1c2", "y-r2c1", "y-r3c2"],
+  ["y-r1c3", "y-r2c4", "y-r3c3"],
+  ["y-r2c2", "y-r3c1", "y-r3c4"]
 ] as const;
 export const YELLOW_VALUE_BY_CELL = Object.fromEntries(
   YELLOW_CELLS.map((cell) => [cell.id, cell.value]),
@@ -179,6 +206,12 @@ export const BLUE_SUM_BY_CELL = Object.fromEntries(
 ) as Record<BlueCellId, number>;
 export const BLUE_SCORE_TRACK = [1, 2, 4, 7, 11, 16, 22, 29, 37, 46, 56] as const;
 export const BLUE_COUNT_TRACK = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] as const;
+export const BLUE_PROGRESS_DISPLAY = BLUE_SCORE_TRACK.map((score, index) => ({
+  step: index + 1,
+  column: index + 1,
+  score,
+  count: BLUE_COUNT_TRACK[index]
+})) satisfies readonly BlueProgressDisplayStep[];
 export const BLUE_ROW_REWARD_DISPLAY = [
   { row: 1, label: "5", tone: "blue-reward-orange" },
   { row: 2, label: "X", tone: "blue-reward-yellow" },
@@ -210,6 +243,92 @@ export const BLUE_DISPLAY_GRID: BlueDisplayCell[][] = [
     { kind: "fillable", cellId: "b-r4c4" }
   ]
 ];
+export const BLUE_BOARD_DISPLAY = [
+  { id: "blue-formula", kind: "formula", row: 1, column: 1 },
+  { id: "b-r1c1", kind: "fillable", row: 1, column: 2, cellId: "b-r1c1" },
+  { id: "b-r1c2", kind: "fillable", row: 1, column: 3, cellId: "b-r1c2" },
+  { id: "b-r2c1", kind: "fillable", row: 1, column: 4, cellId: "b-r2c1" },
+  { id: "b-r2c3", kind: "fillable", row: 2, column: 1, cellId: "b-r2c3" },
+  { id: "b-r2c4", kind: "fillable", row: 2, column: 2, cellId: "b-r2c4" },
+  { id: "b-r3c2", kind: "fillable", row: 2, column: 3, cellId: "b-r3c2" },
+  { id: "b-r3c3", kind: "fillable", row: 2, column: 4, cellId: "b-r3c3" },
+  { id: "b-r3c4", kind: "fillable", row: 3, column: 1, cellId: "b-r3c4" },
+  { id: "b-r4c2", kind: "fillable", row: 3, column: 2, cellId: "b-r4c2" },
+  { id: "b-r4c3", kind: "fillable", row: 3, column: 3, cellId: "b-r4c3" },
+  { id: "b-r4c4", kind: "fillable", row: 3, column: 4, cellId: "b-r4c4" },
+  { id: "blue-row-reward-1", kind: "row-reward", row: 1, column: 5, rewardRow: 1 },
+  { id: "blue-row-reward-2", kind: "row-reward", row: 2, column: 5, rewardRow: 2 },
+  { id: "blue-row-reward-3", kind: "row-reward", row: 3, column: 5, rewardRow: 3 },
+  { id: "blue-column-reward-1", kind: "column-reward", row: 4, column: 1, rewardColumn: 1 },
+  { id: "blue-column-reward-2", kind: "column-reward", row: 4, column: 2, rewardColumn: 2 },
+  { id: "blue-column-reward-3", kind: "column-reward", row: 4, column: 3, rewardColumn: 3 },
+  { id: "blue-column-reward-4", kind: "column-reward", row: 4, column: 4, rewardColumn: 4 }
+] as const satisfies readonly BlueBoardDisplaySlot[];
+export const BLUE_CONNECTOR_DISPLAY = [
+  {
+    id: "blue-row-1",
+    axis: "row",
+    fromRow: 1,
+    fromColumn: 2,
+    toRow: 1,
+    toColumn: 5,
+    arrow: "right"
+  },
+  {
+    id: "blue-row-2",
+    axis: "row",
+    fromRow: 2,
+    fromColumn: 1,
+    toRow: 2,
+    toColumn: 5,
+    arrow: "right"
+  },
+  {
+    id: "blue-row-3",
+    axis: "row",
+    fromRow: 3,
+    fromColumn: 1,
+    toRow: 3,
+    toColumn: 5,
+    arrow: "right"
+  },
+  {
+    id: "blue-column-1",
+    axis: "column",
+    fromRow: 2,
+    fromColumn: 1,
+    toRow: 4,
+    toColumn: 1,
+    arrow: "down"
+  },
+  {
+    id: "blue-column-2",
+    axis: "column",
+    fromRow: 1,
+    fromColumn: 2,
+    toRow: 4,
+    toColumn: 2,
+    arrow: "down"
+  },
+  {
+    id: "blue-column-3",
+    axis: "column",
+    fromRow: 1,
+    fromColumn: 3,
+    toRow: 4,
+    toColumn: 3,
+    arrow: "down"
+  },
+  {
+    id: "blue-column-4",
+    axis: "column",
+    fromRow: 1,
+    fromColumn: 4,
+    toRow: 4,
+    toColumn: 4,
+    arrow: "down"
+  }
+] as const satisfies readonly BlueConnectorDisplaySpec[];
 
 export const GREEN_REWARD_MARKERS = [
   { index: 5, label: "+1", tone: "green-marker-dark" },
