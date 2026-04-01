@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState, type FormEvent } from "react";
+﻿import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import type {
@@ -21,9 +21,9 @@ import {
   describeLegalTargets,
   emptySheetSelection,
   getBonusPlacements,
-  getIntentDie,
   getTrackPreviewValue,
   hasAnyLegalTarget,
+  type SheetSelectionState,
   type SelectedIntent
 } from "./scoreSheetSelection";
 import { ensureRealtimeConnection, getRealtimeSocket } from "../../services/realtime";
@@ -48,53 +48,6 @@ function getRulesHref(language: string, sectionId?: string) {
   return `/rules?lang=${language}${hash}`;
 }
 
-function getRulesSectionForPhase(phase: GameStateSnapshot["phase"] | undefined) {
-  switch (phase) {
-    case "awaiting_active_roll":
-    case "awaiting_active_selection":
-    case "awaiting_turn_end":
-      return "turn-flow";
-    case "awaiting_passive_picks":
-      return "silver";
-    case "awaiting_bonus_resolution":
-      return "bonuses";
-    case "finished":
-      return "scoring";
-    default:
-      return "turn-flow";
-  }
-}
-
-function getContextualRuleLinks(phase: GameStateSnapshot["phase"] | undefined) {
-  switch (phase) {
-    case "awaiting_active_roll":
-    case "awaiting_active_selection":
-      return [
-        { id: "turn-flow", label: "主动阶段" },
-        { id: "zones", label: "颜色区规则" }
-      ];
-    case "awaiting_passive_picks":
-      return [
-        { id: "silver", label: "银盘与被动选择" },
-        { id: "zones", label: "颜色区规则" }
-      ];
-    case "awaiting_bonus_resolution":
-      return [
-        { id: "bonuses", label: "奖励与连锁" },
-        { id: "zones", label: "颜色区规则" }
-      ];
-    case "finished":
-      return [
-        { id: "scoring", label: "计分与终局" }
-      ];
-    default:
-      return [
-        { id: "turn-flow", label: "回合流程" },
-        { id: "tips", label: "数字版操作提示" }
-      ];
-  }
-}
-
 export function GamePage() {
   const { roomId } = useParams();
   const normalizedRoomId = roomId ?? "";
@@ -110,7 +63,10 @@ export function GamePage() {
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [socketConnected, setSocketConnected] = useState(() => getRealtimeSocket().connected);
   const [selectedIntent, setSelectedIntent] = useState<SelectedIntent | null>(null);
+  const [pendingDieIntent, setPendingDieIntent] = useState<Exclude<SelectedIntent, { kind: "bonus" }> | null>(null);
   const [rulesLanguage] = useState(getPreferredRulesLanguage);
+  const [isTurnTopbarCollapsed, setIsTurnTopbarCollapsed] = useState(false);
+  const previousTopbarVisibleRef = useRef(false);
 
   useEffect(() => {
     if (!normalizedRoomId) {
@@ -145,6 +101,7 @@ export function GamePage() {
       setError("");
       setJoining(false);
       setPendingAction(null);
+      setPendingDieIntent(null);
       setSelectedIntent(null);
     };
 
@@ -156,6 +113,7 @@ export function GamePage() {
       setRoom(payload.room);
       setGameState((payload.gameState as GameStateSnapshot | null) ?? null);
       setPendingAction(null);
+      setPendingDieIntent(null);
       setSelectedIntent(null);
     };
 
@@ -211,10 +169,17 @@ export function GamePage() {
     () => (gameState && mySheet ? buildSheetSelection(selectedIntent, gameState, mySheet) : emptySheetSelection()),
     [gameState, mySheet, selectedIntent],
   );
+  const pendingDieSelection = useMemo(
+    () => (gameState && mySheet && pendingDieIntent
+      ? buildSheetSelection(pendingDieIntent, gameState, mySheet)
+      : emptySheetSelection()),
+    [gameState, mySheet, pendingDieIntent],
+  );
   const selectedIntentHasLegalTarget = hasAnyLegalTarget(sheetSelection);
-  const selectionSummary = describeSelectedIntent(selectedIntent);
-  const phaseRulesSection = getRulesSectionForPhase(gameState?.phase);
-  const contextualRuleLinks = getContextualRuleLinks(gameState?.phase);
+  const selectedIntentPlacements = useMemo(() => getLegalPlacements(sheetSelection), [sheetSelection]);
+  const pendingDieIntentPlacements = useMemo(() => getLegalPlacements(pendingDieSelection), [pendingDieSelection]);
+  const pendingDieIntentHasLegalTarget = hasAnyLegalTarget(pendingDieSelection);
+  const requiresManualPlacement = selectedIntentPlacements.length > 1;
   const canUseRerollResource = Boolean(
     gameState?.phase === "awaiting_active_selection" &&
       gameState.currentPlayerId === currentPlayerId &&
@@ -277,6 +242,29 @@ export function GamePage() {
       gameState.currentPlayerId === currentPlayerId &&
       !hasPendingTurnEndExtraDie,
   );
+  const isAwaitingMyActiveSelection = Boolean(
+    gameState?.phase === "awaiting_active_selection" &&
+      gameState.currentPlayerId === currentPlayerId,
+  );
+  const isAwaitingMyPassivePick = Boolean(
+    gameState?.phase === "awaiting_passive_picks" && passiveSelection?.status === "pending",
+  );
+  const shouldShowTurnTopbar = Boolean(
+    canRoll ||
+      isAwaitingMyActiveSelection ||
+      isAwaitingMyPassivePick ||
+      canUseExtraDieResource ||
+      pendingBonusResolution ||
+      canAdvanceTurn,
+  );
+
+  useEffect(() => {
+    if (shouldShowTurnTopbar && !previousTopbarVisibleRef.current) {
+      setIsTurnTopbarCollapsed(false);
+    }
+
+    previousTopbarVisibleRef.current = shouldShowTurnTopbar;
+  }, [shouldShowTurnTopbar]);
 
   function handleJoinRoom(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -460,22 +448,42 @@ export function GamePage() {
       return;
     }
 
-    if (selectedIntent.kind === "active") {
-      handleSelectDie(selectedIntent.die, placement);
+    applyIntentPlacement(selectedIntent, placement);
+  }
+
+  function applyIntentPlacement(intent: SelectedIntent, placement: SheetPlacement) {
+    if (intent.kind === "active") {
+      handleSelectDie(intent.die, placement);
       return;
     }
 
-    if (selectedIntent.kind === "passive") {
-      handlePassivePick(selectedIntent.die, placement);
+    if (intent.kind === "passive") {
+      handlePassivePick(intent.die, placement);
       return;
     }
 
-    if (selectedIntent.kind === "extra") {
-      handleUseExtraDie(selectedIntent.die, placement);
+    if (intent.kind === "extra") {
+      handleUseExtraDie(intent.die, placement);
       return;
     }
 
-    handleResolveBonus(selectedIntent.bonusIndex, placement);
+    handleResolveBonus(intent.bonusIndex, placement);
+  }
+
+  function handleConfirmPendingDieIntent() {
+    if (!pendingDieIntent || !gameState || !mySheet) {
+      return;
+    }
+
+    const placements = getLegalPlacements(buildSheetSelection(pendingDieIntent, gameState, mySheet));
+    if (placements.length === 1) {
+      applyIntentPlacement(pendingDieIntent, placements[0]);
+      setPendingDieIntent(null);
+      return;
+    }
+
+    setSelectedIntent(pendingDieIntent);
+    setPendingDieIntent(null);
   }
 
   if (!currentPlayer) {
@@ -508,97 +516,47 @@ export function GamePage() {
   }
 
   return (
-    <main className="page-shell">
-      <section className="status-strip panel">
-        <div>
-          <span className="status-label">房间</span>
-          <strong>{normalizedRoomId}</strong>
-        </div>
-        <div>
-          <span className="status-label">阶段</span>
-          <strong>{gameState?.phase ?? "等待同步"}</strong>
-          <div className="status-subaction">
-            <a
-              className="inline-action-link inline-action-link-small"
-              href={getRulesHref(rulesLanguage, phaseRulesSection)}
-              target="_blank"
-              rel="noreferrer"
-            >
-              查看本阶段规则
-            </a>
-          </div>
-        </div>
-        <div>
-          <span className="status-label">轮次</span>
-          <strong>{gameState ? `${gameState.round} / ${gameState.totalRounds}` : "-"}</strong>
-        </div>
-        <div>
-          <span className="status-label">开局奖励</span>
-          <strong>{getRoundTrackerLabel(gameState?.round ?? null)}</strong>
-        </div>
-        <div>
-          <span className="status-label">当前玩家</span>
-          <strong>{activePlayer?.nickname ?? gameState?.currentPlayerId ?? "待开始"}</strong>
-        </div>
-        <div>
-          <span className="status-label">规则书</span>
-          <a
-            className="inline-action-link"
-            href={getRulesHref(rulesLanguage)}
-            target="_blank"
-            rel="noreferrer"
-          >
-            快速打开
-          </a>
-        </div>
-      </section>
-
-      <section className="game-layout">
-        <article className="panel primary-sheet">
-          <p className="eyebrow">Score Sheet</p>
-          <h1>我的计分纸主视图</h1>
-          <p className="lead">
-            当前先接真实对局状态和默认落点操作。后续再把这里升级成可点击的高保真计分纸。
-          </p>
-          <div className="status-row">
-            <span className="status-pill">你：{currentPlayer.nickname}</span>
-            <span className="status-pill">总分：{mySheet?.score ?? 0}</span>
-            <span className="status-pill">本回合已选：{mySheet?.selectedDiceThisTurn ?? 0}</span>
-            <span className="status-pill">状态：{room?.status ?? "unknown"}</span>
-          </div>
-          <div className="info-banner">
-            <strong>当前提示：</strong> {actionPrompt}
-          </div>
-          <div className="rule-link-row">
-            {contextualRuleLinks.map((item) => (
-              <a
-                key={item.id}
-                className="rule-jump-link"
-                href={getRulesHref(rulesLanguage, item.id)}
-                target="_blank"
-                rel="noreferrer"
-              >
-                {item.label}
-              </a>
-            ))}
-          </div>
-          {selectionSummary ? (
-            <div className="info-banner selection-banner">
-              <div className="selection-copy">
-                <strong>当前已选：</strong> {selectionSummary}
-                {selectedIntentHasLegalTarget ? (
-                  <div className="selection-targets">可操作位置：{describeLegalTargets(sheetSelection)}</div>
-                ) : null}
-              </div>
-              <div className="mini-action-row">
-                <button className="micro-button" onClick={() => setSelectedIntent(null)}>
-                  取消选择
-                </button>
-              </div>
+    <main
+      className={`page-shell game-page-shell ${
+        shouldShowTurnTopbar
+          ? isTurnTopbarCollapsed
+            ? "game-page-shell-with-turnbar-collapsed"
+            : "game-page-shell-with-turnbar"
+          : ""
+      }`}
+    >
+      {shouldShowTurnTopbar ? (
+        <section className={`turn-topbar panel ${isTurnTopbarCollapsed ? "turn-topbar-collapsed" : ""}`}>
+          <div className="turn-topbar-head">
+            <div className="turn-topbar-title">
+              <p className="eyebrow">Your Turn</p>
+              <h2>{isTurnTopbarCollapsed ? "操作" : actionPrompt}</h2>
             </div>
-          ) : null}
-          {selectedIntent && !selectedIntentHasLegalTarget ? (
-            <div className="error-banner">
+            <div className="turn-topbar-controls">
+              {!isTurnTopbarCollapsed && selectedIntent && requiresManualPlacement ? (
+                <div className="turn-topbar-summary">
+                  <span className="selection-targets">请在左侧选择落点：{describeLegalTargets(sheetSelection)}</span>
+                  <button
+                    className="micro-button"
+                    onClick={() => {
+                      setPendingDieIntent(null);
+                      setSelectedIntent(null);
+                    }}
+                  >
+                    取消
+                  </button>
+                </div>
+              ) : null}
+              <button
+                className="micro-button turn-topbar-toggle"
+                onClick={() => setIsTurnTopbarCollapsed((current) => !current)}
+              >
+                {isTurnTopbarCollapsed ? "展开" : "收起"}
+              </button>
+            </div>
+          </div>
+          {!isTurnTopbarCollapsed && selectedIntent && !selectedIntentHasLegalTarget ? (
+            <div className="error-banner turn-topbar-banner">
               当前选中的对象在所有允许区域里都没有合法落点。
               {selectedIntent.kind === "passive"
                 ? passiveRegularSource === "active-fields"
@@ -610,219 +568,22 @@ export function GamePage() {
                     : " 这是主动阶段时，而且当前所有已掷骰子都没有合法落点；你现在可以把这次掷骰记为空过。"
                   : selectedIntent.kind === "extra"
                     ? " 这是额外骰动作时，请改选别的候选骰子。"
-                  : " 请取消当前奖励选择，改用其他可解析的奖励或等待前一动作调整。"}
+                    : " 请取消当前奖励选择，改用其他可解析的奖励或等待前一动作调整。"}
             </div>
           ) : null}
-          <div className="score-sheet-stage">
-            {mySheet ? (
-              <ScoreSheetBoard
-                player={mySheet}
-                activeSelections={activeSelections}
-                currentRound={gameState?.round ?? 1}
-                totalRounds={gameState?.totalRounds ?? 1}
-                selection={sheetSelection}
-                onSelect={handleSheetPlacement}
-                orangePreviewValue={getTrackPreviewValue("orange", selectedIntent)}
-                purplePreviewValue={getTrackPreviewValue("purple", selectedIntent)}
-              />
-            ) : (
-              <div className="score-sheet-loading">Waiting for sync</div>
-            )}
-          </div>
-        </article>
+          {!isTurnTopbarCollapsed ? <div className="turn-topbar-content">
+            {canRoll ? (
+              <div className="turn-action-block">
+                <button className="primary-button" onClick={handleRoll} disabled={pendingAction !== null}>
+                  {pendingAction === "roll" ? "掷骰中..." : "主动玩家掷骰"}
+                </button>
+              </div>
+            ) : null}
 
-        <aside className="sidebar-stack">
-          <article className="panel">
-            <p className="eyebrow">Dice Pool</p>
-            <h2>公共骰池与银盘</h2>
-            <p className="lead">这里现在展示真实掷骰结果、银盘和可执行动作。</p>
-            <div className="dice-section">
-              <h3>本次掷骰</h3>
-              <p className="helper-copy">
-                白骰可以当任意颜色使用。点中后左侧会高亮当前真的能落子的区域，蓝色区会自动按蓝骰和白骰的和数判断。
-              </p>
-              <div className="dice-grid">
-                {rolledDice.length > 0 ? (
-                  rolledDice.map((die) => (
-                    <button
-                      key={`rolled-${die.id}`}
-                      className={`die-card die-${die.color} ${
-                        isIntentSelected(selectedIntent, "active", die.id) ? "die-card-selected" : ""
-                      } ${
-                        gameState?.phase === "awaiting_active_selection" &&
-                        gameState.currentPlayerId === currentPlayerId
-                          ? "die-card-actionable"
-                          : ""
-                      } ${
-                        mySheet && gameState
-                          ? isDieChoicePlayable(
-                              { kind: "active", die },
-                              gameState,
-                              mySheet,
-                            )
-                            ? ""
-                            : "die-card-blocked"
-                          : ""
-                      }`}
-                      title={
-                        mySheet && gameState
-                          ? isDieChoicePlayable({ kind: "active", die }, gameState, mySheet)
-                            ? "这个骰子当前至少有一个合法落点。"
-                            : "这个骰子当前没有合法落点，选了也无法继续。"
-                          : ""
-                      }
-                      onClick={() => setSelectedIntent({ kind: "active", die })}
-                      disabled={
-                        !(
-                          gameState?.phase === "awaiting_active_selection" &&
-                          gameState.currentPlayerId === currentPlayerId
-                        )
-                      }
-                    >
-                      <strong>{die.id}</strong>
-                      <span>{die.value}</span>
-                    </button>
-                  ))
-                ) : (
-                  <p>还没有掷骰结果。</p>
-                )}
-              </div>
-            </div>
-            <div className="dice-section">
-              <h3>银盘</h3>
-              <p className="helper-copy">
-                {passiveRegularSource === "active-fields"
-                  ? "你当前不能使用任何银盘骰子。按规则，现在必须改从主动玩家左上角的已选骰子里拿 1 颗。"
-                  : "被动玩家通常从这里拿 1 颗骰子；多个被动玩家可以选择同一颗。"}
-              </p>
-              <div className="dice-grid">
-                {silverPlatter.length > 0 ? (
-                  silverPlatter.map((die) => (
-                    <button
-                      key={`silver-${die.id}-${die.value}`}
-                      className={`die-card die-${die.color} ${
-                        isIntentSelected(selectedIntent, "passive", die.id) ? "die-card-selected" : ""
-                      } ${
-                        gameState?.phase === "awaiting_passive_picks" && passiveSelection?.status === "pending"
-                          ? "die-card-actionable"
-                          : ""
-                      } ${
-                        mySheet && gameState
-                          ? isDieChoicePlayable(
-                              { kind: "passive", die },
-                              gameState,
-                              mySheet,
-                            )
-                            ? ""
-                            : "die-card-blocked"
-                          : ""
-                      }`}
-                      title={
-                        mySheet && gameState
-                          ? isDieChoicePlayable({ kind: "passive", die }, gameState, mySheet)
-                            ? "这个银盘骰子当前至少有一个合法落点。"
-                            : "这个银盘骰子当前没有合法落点。"
-                          : ""
-                      }
-                      onClick={() => setSelectedIntent({ kind: "passive", die })}
-                      disabled={
-                        !(
-                          gameState?.phase === "awaiting_passive_picks" &&
-                          passiveSelection?.status === "pending" &&
-                          passiveRegularSource === "silver"
-                        )
-                      }
-                    >
-                      <strong>{die.id}</strong>
-                      <span>{die.value}</span>
-                    </button>
-                  ))
-                ) : (
-                  <p>银盘还没有骰子。</p>
-                )}
-              </div>
-            </div>
-            <div className="dice-section">
-              <h3>主动玩家骰位</h3>
-              <p className="helper-copy">
-                这里是主动玩家本回合常规拿过的骰子。只有当你作为被动玩家完全不能使用银盘时，才能从这里拿 1 颗。
-              </p>
-              <div className="dice-grid">
-                {activeSelections.length > 0 ? (
-                  activeSelections.map((die) => (
-                    <button
-                      key={`active-selection-${die.id}-${die.value}`}
-                      className={`die-card die-${die.color} ${
-                        isIntentSelected(selectedIntent, "passive", die.id) ? "die-card-selected" : ""
-                      } ${
-                        gameState?.phase === "awaiting_passive_picks" && passiveSelection?.status === "pending"
-                          ? "die-card-actionable"
-                          : ""
-                      } ${
-                        mySheet && gameState
-                          ? isDieChoicePlayable({ kind: "passive", die }, gameState, mySheet)
-                            ? ""
-                            : "die-card-blocked"
-                          : ""
-                      }`}
-                      title={
-                        passiveRegularSource === "active-fields"
-                          ? "按规则，你当前必须从这些主动骰位里选 1 颗。"
-                          : "只有当银盘里没有任何可用骰子时，才能改从这里拿。"
-                      }
-                      onClick={() => setSelectedIntent({ kind: "passive", die })}
-                      disabled={
-                        !(
-                          gameState?.phase === "awaiting_passive_picks" &&
-                          passiveSelection?.status === "pending" &&
-                          passiveRegularSource === "active-fields"
-                        )
-                      }
-                    >
-                      <strong>{die.id}</strong>
-                      <span>{die.value}</span>
-                    </button>
-                  ))
-                ) : (
-                  <p>主动玩家还没有放入骰位的骰子。</p>
-                )}
-              </div>
-            </div>
-          </article>
-          <article className="panel">
-            <p className="eyebrow">Players</p>
-            <h2>其他玩家摘要</h2>
-            <div className="player-list">
-              {room?.players.map((player) => {
-                const snapshot = gameState?.players.find((entry) => entry.playerId === player.id);
-                return (
-                  <div key={player.id} className="player-card">
-                    <strong>{player.nickname}</strong>
-                    <span>{player.id === gameState?.currentPlayerId ? "当前行动" : "等待中"}</span>
-                    <span>{player.connected ? "在线" : "离线"}</span>
-                    <span>分数 {snapshot?.score ?? 0}</span>
-                  </div>
-                );
-              })}
-            </div>
-          </article>
-          <article className="panel">
-            <p className="eyebrow">Actions</p>
-            <h2>操作面板</h2>
-            <p className="lead">右侧现在更偏“选择动作对象”，真正落子优先在左侧计分纸上完成。</p>
-            {error ? <p className="error-banner">{error}</p> : null}
-            <div className="action-stack">
-              <button className="primary-button" onClick={handleRoll} disabled={!canRoll || pendingAction !== null}>
-                {pendingAction === "roll" ? "掷骰中..." : "主动玩家掷骰"}
-              </button>
-
-              {gameState?.phase === "awaiting_active_selection" && gameState.currentPlayerId === currentPlayerId ? (
-                <div className="action-group">
+            {isAwaitingMyActiveSelection ? (
+              <div className="turn-action-block">
+                <div className="turn-action-header">
                   <h3>主动选骰</h3>
-                  <p className="helper-copy">
-                    先在这里选中一个骰子，再去左侧高亮区域点格子或点轨道位完成落子。
-                    如果当前所有已掷骰子都没有合法落点，这次掷骰会被记为空过，仍然会消耗一次常规掷骰机会。
-                  </p>
                   <div className="mini-action-row">
                     <button
                       className="secondary-button"
@@ -841,132 +602,207 @@ export function GamePage() {
                       {pendingAction === "active-skip" ? "处理中..." : "本掷无法填写，记为空过"}
                     </button>
                   </div>
+                </div>
+                <div className="turn-option-grid turn-option-grid-dice">
                   {rolledDice.map((die) => (
-                    <div key={`active-action-${die.id}`} className="die-action-row">
-                      <span>{describeDieAction(die, "active")}</span>
-                      <div className="mini-action-row">
-                        <button
-                          className={`micro-button ${
-                            isIntentSelected(selectedIntent, "active", die.id) ? "micro-button-selected" : ""
-                          }`}
-                          onClick={() => setSelectedIntent({ kind: "active", die })}
-                          disabled={pendingAction !== null}
-                        >
-                          选中后点纸面
-                        </button>
-                        <details className="fallback-details">
-                          <summary>备用快捷按钮</summary>
-                          <div className="mini-action-row fallback-row">
-                            {renderPlacementButtons(die, (placement) => handleSelectDie(die, placement), pendingAction)}
-                          </div>
-                        </details>
-                      </div>
+                    <div key={`active-action-${die.id}`} className="die-action-row die-action-row-die">
+                      <button
+                        className={`die-card die-card-square die-${die.color} ${
+                          isDieIntentPending(pendingDieIntent, { kind: "active", die }) ? "die-card-pending" : ""
+                        } ${
+                          isIntentSelected(selectedIntent, "active", die.id) ? "die-card-selected" : ""
+                        } ${
+                          pendingAction === null ? "die-card-actionable" : ""
+                        } ${
+                          mySheet && gameState && !isDieChoicePlayable({ kind: "active", die }, gameState, mySheet)
+                            ? "die-card-blocked"
+                            : ""
+                        }`}
+                        title={
+                          mySheet && gameState
+                            ? isDieChoicePlayable({ kind: "active", die }, gameState, mySheet)
+                            ? "选中这个骰子，再去计分纸上落子。"
+                              : "这个骰子当前没有合法落点。"
+                            : ""
+                        }
+                        onClick={() => {
+                          setPendingDieIntent({ kind: "active", die });
+                          setSelectedIntent(null);
+                        }}
+                        disabled={pendingAction !== null}
+                      >
+                        <span>{die.value}</span>
+                      </button>
                     </div>
                   ))}
                 </div>
-              ) : null}
+                {pendingDieIntent?.kind === "active" ? (
+                  <div className="mini-action-row">
+                    <button
+                      className="primary-button"
+                      onClick={handleConfirmPendingDieIntent}
+                      disabled={pendingAction !== null || !pendingDieIntentHasLegalTarget}
+                    >
+                      {pendingDieIntentPlacements.length === 1 ? "确认并直接填写" : "确认并去左侧选择"}
+                    </button>
+                    <button
+                      className="micro-button"
+                      onClick={() => setPendingDieIntent(null)}
+                      disabled={pendingAction !== null}
+                    >
+                      取消
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
 
-              {gameState?.phase === "awaiting_passive_picks" && passiveSelection?.status === "pending" ? (
-                <div className="action-group">
+            {isAwaitingMyPassivePick ? (
+              <div className="turn-action-block">
+                <div className="turn-action-header">
                   <h3>被动选骰</h3>
                   <p className="helper-copy">
                     {passiveRegularSource === "active-fields"
                       ? "按规则，你当前不能使用任何银盘骰子，所以必须改从主动玩家左上角的已选骰子里拿 1 颗。"
                       : "被动玩家最多拿银盘中的一个骰子。只有当银盘和主动骰位都没有合法选择时，才能跳过。"}
                   </p>
+                </div>
+                <div className="turn-option-grid turn-option-grid-dice">
                   {passiveRegularDice.map((die) => (
-                    <div key={`passive-action-${die.id}-${die.value}`} className="die-action-row">
-                      <span>{describeDieAction(die, "passive")}</span>
-                      <div className="mini-action-row">
-                        <button
-                          className={`micro-button ${
-                            isIntentSelected(selectedIntent, "passive", die.id) ? "micro-button-selected" : ""
-                          }`}
-                          onClick={() => setSelectedIntent({ kind: "passive", die })}
-                          disabled={pendingAction !== null}
-                        >
-                          选中后点纸面
-                        </button>
-                        <details className="fallback-details">
-                          <summary>备用快捷按钮</summary>
-                          <div className="mini-action-row fallback-row">
-                            {renderPlacementButtons(die, (placement) => handlePassivePick(die, placement), pendingAction, "拿")}
-                          </div>
-                        </details>
-                      </div>
+                    <div key={`passive-action-${die.id}-${die.value}`} className="die-action-row die-action-row-die">
+                      <button
+                        className={`die-card die-card-square die-${die.color} ${
+                          isDieIntentPending(pendingDieIntent, { kind: "passive", die }) ? "die-card-pending" : ""
+                        } ${
+                          isIntentSelected(selectedIntent, "passive", die.id) ? "die-card-selected" : ""
+                        } ${
+                          pendingAction === null ? "die-card-actionable" : ""
+                        } ${
+                          mySheet && gameState && !isDieChoicePlayable({ kind: "passive", die }, gameState, mySheet)
+                            ? "die-card-blocked"
+                            : ""
+                        }`}
+                        title={
+                          mySheet && gameState
+                            ? isDieChoicePlayable({ kind: "passive", die }, gameState, mySheet)
+                            ? "选中这个骰子，再去计分纸上落子。"
+                              : "这个骰子当前没有合法落点。"
+                            : ""
+                        }
+                        onClick={() => {
+                          setPendingDieIntent({ kind: "passive", die });
+                          setSelectedIntent(null);
+                        }}
+                        disabled={pendingAction !== null}
+                      >
+                        <span>{die.value}</span>
+                      </button>
                     </div>
                   ))}
-                  <button
-                    className="secondary-button"
-                    onClick={handlePassiveSkip}
-                    disabled={hasAnyPlayablePassiveDie || pendingAction !== null}
-                  >
-                    {pendingAction === "passive-skip" ? "处理中..." : "没有合法骰子，跳过本次被动选择"}
-                  </button>
                 </div>
-              ) : null}
+                {pendingDieIntent?.kind === "passive" ? (
+                  <div className="mini-action-row">
+                    <button
+                      className="primary-button"
+                      onClick={handleConfirmPendingDieIntent}
+                      disabled={pendingAction !== null || !pendingDieIntentHasLegalTarget}
+                    >
+                      {pendingDieIntentPlacements.length === 1 ? "确认并直接填写" : "确认并去左侧选择"}
+                    </button>
+                    <button
+                      className="micro-button"
+                      onClick={() => setPendingDieIntent(null)}
+                      disabled={pendingAction !== null}
+                    >
+                      取消
+                    </button>
+                  </div>
+                ) : null}
+                <button
+                  className="secondary-button"
+                  onClick={handlePassiveSkip}
+                  disabled={hasAnyPlayablePassiveDie || pendingAction !== null}
+                >
+                  {pendingAction === "passive-skip" ? "处理中..." : "没有合法骰子，跳过本次被动选择"}
+                </button>
+              </div>
+            ) : null}
 
-              {gameState?.phase === "awaiting_passive_picks" && passiveSelection?.status === "picked" ? (
-                <div className="info-banner">
-                  你的常规被动选择已经提交。若你还有额外骰动作，还可以在本回合继续使用。
-                </div>
-              ) : null}
-
-              {gameState?.phase === "awaiting_passive_picks" && passiveSelection?.status === "skipped" ? (
-                <div className="info-banner">
-                  你本次没有任何合法被动选择，已结束常规被动步骤。若你还有额外骰动作，还可以在本回合继续使用。
-                </div>
-              ) : null}
-
-              {canUseExtraDieResource ? (
-                <div className="action-group">
+            {canUseExtraDieResource ? (
+              <div className="turn-action-block">
+                <div className="turn-action-header">
                   <h3>Extra die 动作</h3>
                   <p className="helper-copy">
                     你现在可以消耗 1 个额外骰动作，从本回合全部 6 颗骰子里再选 1 颗来落子。
                     同一颗骰子在本回合里不能被这个动作重复选择。
                   </p>
+                </div>
+                <div className="turn-option-grid turn-option-grid-dice">
                   {extraActionDice.map((die) => (
-                    <div key={`extra-action-${die.id}-${die.value}`} className="die-action-row">
-                      <span>{describeDieAction(die, extraActionRole)}</span>
-                      <div className="mini-action-row">
-                        <button
-                          className={`micro-button ${
-                            selectedIntent?.kind === "extra" && selectedIntent.die.id === die.id
-                              ? "micro-button-selected"
-                              : ""
-                          }`}
-                          onClick={() => setSelectedIntent({ kind: "extra", die, playerRole: extraActionRole })}
-                          disabled={pendingAction !== null}
-                        >
-                          选中后点纸面
-                        </button>
-                        <details className="fallback-details">
-                          <summary>备用快捷按钮</summary>
-                          <div className="mini-action-row fallback-row">
-                            {renderPlacementButtons(die, (placement) => handleUseExtraDie(die, placement), pendingAction, "额外拿")}
-                          </div>
-                        </details>
-                      </div>
+                    <div key={`extra-action-${die.id}-${die.value}`} className="die-action-row die-action-row-die">
+                      <button
+                        className={`die-card die-card-square die-${die.color} ${
+                          isDieIntentPending(pendingDieIntent, { kind: "extra", die, playerRole: extraActionRole })
+                            ? "die-card-pending"
+                            : ""
+                        } ${
+                          selectedIntent?.kind === "extra" && selectedIntent.die.id === die.id
+                            ? "die-card-selected"
+                            : ""
+                        } ${
+                          pendingAction === null ? "die-card-actionable" : ""
+                        }`}
+                        title="选中这个额外骰，再去计分纸上落子。"
+                        onClick={() => {
+                          setPendingDieIntent({ kind: "extra", die, playerRole: extraActionRole });
+                          setSelectedIntent(null);
+                        }}
+                        disabled={pendingAction !== null}
+                      >
+                        <span>{die.value}</span>
+                      </button>
                     </div>
                   ))}
-                  <button
-                    className="secondary-button"
-                    onClick={handlePassExtraDie}
-                    disabled={pendingAction !== null}
-                  >
-                    {pendingAction === "pass-extra-die" ? "处理中..." : "本回合不再使用额外骰"}
-                  </button>
                 </div>
-              ) : null}
+                {pendingDieIntent?.kind === "extra" ? (
+                  <div className="mini-action-row">
+                    <button
+                      className="primary-button"
+                      onClick={handleConfirmPendingDieIntent}
+                      disabled={pendingAction !== null || !pendingDieIntentHasLegalTarget}
+                    >
+                      {pendingDieIntentPlacements.length === 1 ? "确认并直接填写" : "确认并去左侧选择"}
+                    </button>
+                    <button
+                      className="micro-button"
+                      onClick={() => setPendingDieIntent(null)}
+                      disabled={pendingAction !== null}
+                    >
+                      取消
+                    </button>
+                  </div>
+                ) : null}
+                <button
+                  className="secondary-button"
+                  onClick={handlePassExtraDie}
+                  disabled={pendingAction !== null}
+                >
+                  {pendingAction === "pass-extra-die" ? "处理中..." : "本回合不再使用额外骰"}
+                </button>
+              </div>
+            ) : null}
 
-              {gameState?.phase === "awaiting_bonus_resolution" && pendingBonusResolution ? (
-                <div className="action-group">
+            {gameState?.phase === "awaiting_bonus_resolution" && pendingBonusResolution ? (
+              <div className="turn-action-block">
+                <div className="turn-action-header">
                   <h3>{pendingBonusResolution.mode === "choice" ? "回合开局奖励" : "奖励解析"}</h3>
                   <p className="helper-copy">
                     {pendingBonusResolution.mode === "choice"
                       ? "第 4 轮开始时，每位玩家都要在黑色 X 和黑色 6 之间二选一，并立即执行，不能留到后面。"
                       : "先把奖励链处理完，完成后游戏会自动回到之前的阶段。"}
                   </p>
+                </div>
+                <div className="turn-option-grid">
                   {pendingBonusResolution.bonuses.map((bonus, index) => (
                     <div key={`${bonus.source}-${index}`} className="die-action-row">
                       <span>{describeBonus(bonus)}</span>
@@ -1008,44 +844,112 @@ export function GamePage() {
                     </div>
                   ))}
                 </div>
-              ) : null}
-
-              <button
-                className="secondary-button"
-                onClick={handleAdvanceTurn}
-                disabled={!canAdvanceTurn || pendingAction !== null}
-              >
-                {pendingAction === "advance-turn" ? "推进中..." : "推进到下一位玩家"}
-              </button>
-              {gameState?.phase === "awaiting_turn_end" && hasPendingTurnEndExtraDie ? (
-                <div className="info-banner">
-                  当前仍有玩家可以继续使用或明确放弃 `Extra die` 动作，回合暂时还不能推进。
-                </div>
-              ) : null}
-            </div>
-            <div className="log-list">
-              <h3>最近日志</h3>
-              {(gameState?.logs.slice(-5).reverse() ?? []).map((entry) => (
-                <div key={entry.id} className="log-item">
-                  {entry.message}
-                </div>
-              ))}
-            </div>
-            {gameState?.phase === "finished" && gameState.standings ? (
-              <div className="action-group">
-                <h3>最终排名</h3>
-                {gameState.standings.map((standing) => {
-                  const player = room?.players.find((entry) => entry.id === standing.playerId);
-                  return (
-                    <div key={standing.playerId} className="log-item">
-                      #{standing.rank} {player?.nickname ?? standing.playerId}: {standing.totalScore}
-                    </div>
-                  );
-                })}
               </div>
             ) : null}
-          </article>
-        </aside>
+
+            {canAdvanceTurn ? (
+              <div className="turn-action-block">
+                <button
+                  className="secondary-button"
+                  onClick={handleAdvanceTurn}
+                  disabled={pendingAction !== null}
+                >
+                  {pendingAction === "advance-turn" ? "推进中..." : "推进到下一位玩家"}
+                </button>
+                {gameState?.phase === "awaiting_turn_end" && hasPendingTurnEndExtraDie ? (
+                  <div className="info-banner turn-topbar-banner">
+                    当前仍有玩家可以继续使用或明确放弃 `Extra die` 动作，回合暂时还不能推进。
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            <div className="turn-action-block">
+              <div className="turn-action-header">
+                <h3>已锁定骰子</h3>
+                <p className="helper-copy">这里展示本回合已经被主动玩家拿走、目前锁定在右侧流程里的骰子。</p>
+              </div>
+              {activeSelections.length > 0 ? (
+                <div className="locked-dice-grid">
+                  {activeSelections.map((die, index) => (
+                    <div key={`locked-${die.id}-${die.value}-${index}`} className="die-action-row die-action-row-die">
+                      <div className={`die-card die-card-square die-card-locked die-${die.color}`}>
+                        <span>{die.value}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="helper-copy">这回合还没有锁定骰子。</p>
+              )}
+            </div>
+          </div> : null}
+        </section>
+      ) : null}
+
+      <section className="game-header-bar panel">
+        <div>
+          <span className="status-label">房间</span>
+          <strong>{normalizedRoomId}</strong>
+        </div>
+        <div>
+          <span className="status-label">规则书</span>
+          <a
+            className="inline-action-link"
+            href={getRulesHref(rulesLanguage)}
+            target="_blank"
+            rel="noreferrer"
+          >
+            快速打开
+          </a>
+        </div>
+      </section>
+
+      {error ? <p className="error-banner">{error}</p> : null}
+
+      <section className="game-main-stack">
+        <article className="panel primary-sheet primary-sheet-simplified">
+          <div className="score-sheet-stage">
+            {mySheet ? (
+              <ScoreSheetBoard
+                player={mySheet}
+                activeSelections={activeSelections}
+                currentRound={gameState?.round ?? 1}
+                totalRounds={gameState?.totalRounds ?? 1}
+                selection={sheetSelection}
+                onSelect={handleSheetPlacement}
+                orangePreviewValue={getTrackPreviewValue("orange", selectedIntent)}
+                purplePreviewValue={getTrackPreviewValue("purple", selectedIntent)}
+              />
+            ) : (
+              <div className="score-sheet-loading">Waiting for sync</div>
+            )}
+          </div>
+        </article>
+
+        <article className="panel game-log-panel">
+          <h2>最近日志</h2>
+          <div className="log-list">
+            {(gameState?.logs.slice(-5).reverse() ?? []).map((entry) => (
+              <div key={entry.id} className="log-item">
+                {entry.message}
+              </div>
+            ))}
+          </div>
+          {gameState?.phase === "finished" && gameState.standings ? (
+            <div className="action-group final-standings">
+              <h3>最终排名</h3>
+              {gameState.standings.map((standing) => {
+                const player = room?.players.find((entry) => entry.id === standing.playerId);
+                return (
+                  <div key={standing.playerId} className="log-item">
+                    #{standing.rank} {player?.nickname ?? standing.playerId}: {standing.totalScore}
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
+        </article>
       </section>
       <div className="link-row">
         <Link to={`/room/${normalizedRoomId}`}>返回房间页</Link>
@@ -1160,39 +1064,6 @@ function hasAvailableExtraDieOption(
   return getExtraDieCandidates(gameState, player, player.playerId).length > 0;
 }
 
-function renderPlacementButtons(
-  die: DieValue,
-  onSelect: (placement: SheetPlacement) => void,
-  pendingAction: string | null,
-  verb = "填"
-) {
-  const placements =
-    die.id === "white"
-      ? ([
-          { zone: "yellow" },
-          { zone: "blue" },
-          { zone: "green" },
-          { zone: "orange" },
-          { zone: "purple" }
-        ] satisfies SheetPlacement[])
-      : ([{ zone: die.id }] satisfies SheetPlacement[]);
-
-  return placements.map((placement) => {
-    const actionKey = `${verb}-${die.id}-${placement.zone}`;
-
-    return (
-      <button
-        key={actionKey}
-        className="micro-button"
-        onClick={() => onSelect(placement)}
-        disabled={pendingAction !== null}
-      >
-        {verb}{formatPlacementLabel(placement, die)}
-      </button>
-    );
-  });
-}
-
 function isIntentSelected(
   intent: SelectedIntent | null,
   expectedKind: "active" | "passive",
@@ -1201,24 +1072,45 @@ function isIntentSelected(
   return Boolean(intent && intent.kind === expectedKind && intent.die.id === dieId);
 }
 
-function describeSelectedIntent(intent: SelectedIntent | null) {
-  if (!intent) {
-    return "";
+function getLegalPlacements(selection: SheetSelectionState): SheetPlacement[] {
+  const placements: SheetPlacement[] = [];
+
+  selection.activeYellowCellIds.forEach((cellId) => {
+    placements.push({ zone: "yellow", cellId });
+  });
+
+  selection.activeBlueCellIds.forEach((cellId) => {
+    placements.push({ zone: "blue", cellId });
+  });
+
+  if (selection.activeGreen) {
+    placements.push({ zone: "green" });
   }
 
-  if (intent.kind === "bonus") {
-    if (isInstantBonus(intent.bonus)) {
-      return `奖励处理中：${describeBonus(intent.bonus)}。这个奖励不需要点纸面，直接在右侧立即领取即可。`;
-    }
-
-    return `奖励处理中：${describeBonus(intent.bonus)}。请去左侧高亮区域点击落点。`;
+  if (selection.activeOrange) {
+    placements.push({ zone: "orange" });
   }
 
-  const modeLabel =
-    intent.kind === "active" ? "主动" : intent.kind === "passive" ? "被动" : "额外骰";
-  const die = getIntentDie(intent);
-  const whiteHint = die.id === "white" ? " 白骰可跨区。" : "";
-  return `${modeLabel}已选 ${die.id} = ${die.value}。请去左侧高亮区域点击落点。${whiteHint}`;
+  if (selection.activePurple) {
+    placements.push({ zone: "purple" });
+  }
+
+  return placements;
+}
+
+function isDieIntentPending(
+  pendingIntent: Exclude<SelectedIntent, { kind: "bonus" }> | null,
+  intent: Exclude<SelectedIntent, { kind: "bonus" }>,
+) {
+  if (!pendingIntent || pendingIntent.kind !== intent.kind || pendingIntent.die.id !== intent.die.id) {
+    return false;
+  }
+
+  if (pendingIntent.kind !== "extra" || intent.kind !== "extra") {
+    return true;
+  }
+
+  return pendingIntent.playerRole === intent.playerRole;
 }
 
 function renderBonusButtons(
@@ -1303,35 +1195,6 @@ function formatBonusSource(source: string) {
   }
 
   return source;
-}
-
-function formatPlacementLabel(placement: SheetPlacement, die: DieValue) {
-  if (die.id === "white") {
-    return `${placement.zone}(白)`;
-  }
-
-  return placement.zone;
-}
-
-function describeDieAction(die: DieValue, mode: "active" | "passive") {
-  const prefix = mode === "active" ? "主动" : "被动";
-  const whiteHint = die.id === "white" ? "，可当任意颜色" : "";
-  return `${prefix} ${die.id} = ${die.value}${whiteHint}`;
-}
-
-function getRoundTrackerLabel(round: number | null) {
-  switch (round) {
-    case 1:
-      return "R";
-    case 2:
-      return "Extra Die";
-    case 3:
-      return "R";
-    case 4:
-      return "X / 6 二选一";
-    default:
-      return "无";
-  }
 }
 
 function getActionPrompt(args: {
