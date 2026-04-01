@@ -7,7 +7,6 @@ import type {
   PlayerSheetSnapshot,
   SheetPlacement
 } from "@clever/game-core";
-import { YELLOW_CELL_IDS } from "@clever/game-core";
 import type {
   DieValue,
   RoomErrorEvent,
@@ -618,6 +617,9 @@ export function GamePage() {
             {mySheet ? (
               <ScoreSheetBoard
                 player={mySheet}
+                activeSelections={activeSelections}
+                currentRound={gameState?.round ?? 1}
+                totalRounds={gameState?.totalRounds ?? 1}
                 selection={sheetSelection}
                 onSelect={handleSheetPlacement}
                 orangePreviewValue={getTrackPreviewValue("orange", selectedIntent)}
@@ -626,16 +628,6 @@ export function GamePage() {
             ) : (
               <div className="score-sheet-loading">Waiting for sync</div>
             )}
-            <article className="score-sheet-resource-panel">
-              <div className="score-sheet-resource-head">
-                <div>
-                  <p className="score-sheet-resource-eyebrow">Companion</p>
-                  <h2>Resources</h2>
-                </div>
-                <span>Bonus and stock</span>
-              </div>
-              {mySheet ? renderResourceSheet(mySheet) : <p>Waiting for sync</p>}
-            </article>
           </div>
         </article>
 
@@ -1060,34 +1052,6 @@ export function GamePage() {
         <Link to="/">返回首页</Link>
       </div>
     </main>
-  );
-}
-
-function renderResourceSheet(player: PlayerSheetSnapshot) {
-  return (
-    <>
-      <div className="resource-summary-grid">
-        <div className="resource-summary-card">
-          <span>Reroll</span>
-          <strong>{player.sheet.resources.rerolls}</strong>
-        </div>
-        <div className="resource-summary-card">
-          <span>Extra Die</span>
-          <strong>{player.sheet.resources.extraDice}</strong>
-        </div>
-        <div className="resource-summary-card">
-          <span>Fox</span>
-          <strong>{player.sheet.resources.foxes}</strong>
-        </div>
-      </div>
-      <div className="resource-summary-meta">
-        <span>待处理奖励：{player.sheet.pendingBonuses.length}</span>
-        <span>重投与额外骰资源都会累计；额外骰现在表示回合末再选一颗骰子的动作次数。</span>
-        <span>
-          已填黄格：{player.sheet.yellow.markedCellIds.length} / {YELLOW_CELL_IDS.length}
-        </span>
-      </div>
-    </>
   );
 }
 

@@ -31,6 +31,7 @@ test("createInitialGameState seeds the first active turn", () => {
   assert.deepEqual(state.turn?.availableDiceIds, BASE_DICE_IDS);
   assert.equal(state.turn?.passiveSelections.length, 2);
   assert.equal(state.players.every((player) => player.sheet.resources.rerolls === 1), true);
+  assert.equal(state.players.every((player) => player.sheet.resourceTracks.rerolls.gained === 1), true);
 });
 
 test("four-player games default to four rounds", () => {
@@ -555,6 +556,7 @@ test("active player can spend a reroll resource before choosing a die", () => {
   assert.equal(rerolled.phase, "awaiting_active_roll");
   assert.deepEqual(rerolled.turn?.rolledDice, []);
   assert.equal(rerolled.players.find((player) => player.playerId === "p1")?.sheet.resources.rerolls, 0);
+  assert.equal(rerolled.players.find((player) => player.playerId === "p1")?.sheet.resourceTracks.rerolls.spent, 1);
 });
 
 test("an illegal active roll can be spent without ending the turn if rolls remain", () => {
@@ -756,6 +758,7 @@ test("an extra-die action can reuse a regular die once at the end of the turn", 
 
   assert.equal(extraPicked.players.find((player) => player.playerId === "p1")?.sheet.resources.extraDice, 0);
   assert.equal(extraPicked.players.find((player) => player.playerId === "p1")?.sheet.green.filledThresholds.length, 2);
+  assert.equal(extraPicked.players.find((player) => player.playerId === "p1")?.sheet.resourceTracks.extraDice.spent, 1);
   assert.deepEqual(extraPicked.turn?.extraDiceUsedByPlayer.p1, ["green"]);
 });
 

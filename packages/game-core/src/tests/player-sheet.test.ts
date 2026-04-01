@@ -353,6 +353,7 @@ test("instant fox and reroll bonuses are stored as resources when resolved", () 
 
   assert.equal(rerollResolved.sheet.pendingBonuses.length, 0);
   assert.equal(rerollResolved.sheet.resources.rerolls, 1);
+  assert.equal(rerollResolved.sheet.resourceTracks.rerolls.gained, 1);
 });
 
 test("scorePlayerSheet combines zone scores and fox bonus", () => {

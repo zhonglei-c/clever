@@ -47,6 +47,16 @@ export interface PlayerResources {
   foxes: number;
 }
 
+export interface TrackedResourceState {
+  gained: number;
+  spent: number;
+}
+
+export interface PlayerResourceTracks {
+  rerolls: TrackedResourceState;
+  extraDice: TrackedResourceState;
+}
+
 export interface WildMarkBonus {
   type: "wild-mark";
   source: string;
@@ -102,6 +112,7 @@ export interface PlayerSheetState {
   orange: OrangeZoneState;
   purple: PurpleZoneState;
   resources: PlayerResources;
+  resourceTracks: PlayerResourceTracks;
   pendingBonuses: PendingSheetBonus[];
 }
 
@@ -373,6 +384,16 @@ export function createEmptyPlayerSheet(): PlayerSheetState {
       rerolls: 0,
       extraDice: 0,
       foxes: 0
+    },
+    resourceTracks: {
+      rerolls: {
+        gained: 0,
+        spent: 0
+      },
+      extraDice: {
+        gained: 0,
+        spent: 0
+      }
     },
     pendingBonuses: []
   };
@@ -673,15 +694,7 @@ function removePendingBonusWithResource(
   bonusIndex: number,
   resourceKey: keyof PlayerResources,
 ): PlayerSheetState {
-  const nextSheet = removePendingBonus(sheet, bonusIndex);
-
-  return {
-    ...nextSheet,
-    resources: {
-      ...nextSheet.resources,
-      [resourceKey]: nextSheet.resources[resourceKey] + 1
-    }
-  };
+  return gainPlayerResource(removePendingBonus(sheet, bonusIndex), resourceKey);
 }
 
 function asFaceValue(value: number): 1 | 2 | 3 | 4 | 5 | 6 {
@@ -934,6 +947,72 @@ function getLinearTrackBonuses(
   progress: number,
 ) {
   return rewardMap[progress] ?? [];
+}
+
+type TrackedResourceKey = keyof PlayerResourceTracks;
+
+function isTrackedResourceKey(resourceKey: keyof PlayerResources): resourceKey is TrackedResourceKey {
+  return resourceKey === "rerolls" || resourceKey === "extraDice";
+}
+
+export function gainPlayerResource(
+  sheet: PlayerSheetState,
+  resourceKey: keyof PlayerResources,
+  amount = 1,
+): PlayerSheetState {
+  if (amount <= 0) {
+    return sheet;
+  }
+
+  const nextSheet: PlayerSheetState = {
+    ...sheet,
+    resources: {
+      ...sheet.resources,
+      [resourceKey]: sheet.resources[resourceKey] + amount
+    }
+  };
+
+  if (!isTrackedResourceKey(resourceKey)) {
+    return nextSheet;
+  }
+
+  return {
+    ...nextSheet,
+    resourceTracks: {
+      ...nextSheet.resourceTracks,
+      [resourceKey]: {
+        ...nextSheet.resourceTracks[resourceKey],
+        gained: nextSheet.resourceTracks[resourceKey].gained + amount
+      }
+    }
+  };
+}
+
+export function spendTrackedPlayerResource(
+  sheet: PlayerSheetState,
+  resourceKey: TrackedResourceKey,
+  amount = 1,
+): PlayerSheetState {
+  if (amount <= 0) {
+    return sheet;
+  }
+
+  invariant(sheet.resources[resourceKey] >= amount, `No ${resourceKey} resource is available.`);
+
+  return {
+    ...sheet,
+    resources: {
+      ...sheet.resources,
+      [resourceKey]: sheet.resources[resourceKey] - amount
+    },
+    resourceTracks: {
+      ...sheet.resourceTracks,
+      [resourceKey]: {
+        ...sheet.resourceTracks[resourceKey],
+        spent: sheet.resourceTracks[resourceKey].spent + amount
+      }
+    }
+  };
 }
 
 function assertNever(_: never): never {

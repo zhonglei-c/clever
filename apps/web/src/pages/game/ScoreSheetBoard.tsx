@@ -24,6 +24,7 @@ import {
   type SheetPlacement,
   type YellowCellId
 } from "@clever/game-core";
+import type { DieValue } from "@clever/shared";
 
 interface ScoreSheetBoardSelection {
   activeZoneIds: Set<SheetPlacement["zone"]>;
@@ -36,6 +37,9 @@ interface ScoreSheetBoardSelection {
 
 interface ScoreSheetBoardProps {
   player: PlayerSheetSnapshot;
+  activeSelections: DieValue[];
+  currentRound: number;
+  totalRounds: number;
   selection: ScoreSheetBoardSelection;
   onSelect: (placement: SheetPlacement) => void;
   orangePreviewValue: number | null;
@@ -44,6 +48,9 @@ interface ScoreSheetBoardProps {
 
 export function ScoreSheetBoard({
   player,
+  activeSelections,
+  currentRound,
+  totalRounds,
   selection,
   onSelect,
   orangePreviewValue,
@@ -56,14 +63,103 @@ export function ScoreSheetBoard({
       <ScoreSheetChrome />
 
       <div className="score-sheet-board-content">
-        <header className="score-sheet-masthead">
-          <div className="score-sheet-brand">
-            <span className="score-sheet-brand-line">Pretty Clever</span>
-            <strong className="score-sheet-brand-title">Score Sheet</strong>
+        <header className="score-sheet-topbar">
+          <div className="score-sheet-used-dice">
+            <div className="score-sheet-used-dice-head">
+              <span className="score-sheet-panel-label">Selected Dice</span>
+              <strong>已选骰子</strong>
+            </div>
+            <div className="score-sheet-used-dice-slots">
+              {Array.from({ length: 3 }, (_, index) => {
+                const die = activeSelections[index] ?? null;
+
+                return (
+                  <div
+                    key={`selected-die-slot-${index + 1}`}
+                    className={`score-sheet-used-die-slot ${
+                      die ? "score-sheet-used-die-slot-filled" : ""
+                    }`}
+                    title={die ? `${die.id} ${die.value}` : `已选骰位 ${index + 1}`}
+                  >
+                    {die ? (
+                      <>
+                        <span className={`score-sheet-used-die-color score-sheet-used-die-color-${die.color}`} />
+                        <strong className="score-sheet-used-die-value">{die.value}</strong>
+                      </>
+                    ) : (
+                      <span className="score-sheet-used-die-placeholder">{index + 1}</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
-          <div className="score-sheet-masthead-meta">
-            <span>Yellow and Blue keep the printed number visible under an X.</span>
-            <span>Green, Orange, and Purple write the chosen value directly.</span>
+
+          <div className="score-sheet-topbar-main">
+            <div className="score-sheet-topbar-head">
+              <div className="score-sheet-brand">
+                <span className="score-sheet-brand-line">Pretty Clever</span>
+                <strong className="score-sheet-brand-title">Player Sheet</strong>
+              </div>
+              <div className="score-sheet-summary-strip">
+                <div className="score-sheet-summary-pill">
+                  <span>Fox</span>
+                  <strong>{player.sheet.resources.foxes}</strong>
+                </div>
+                <div className="score-sheet-summary-pill">
+                  <span>Pending</span>
+                  <strong>{player.sheet.pendingBonuses.length}</strong>
+                </div>
+              </div>
+            </div>
+
+            <div className="score-sheet-round-strip">
+              <div className="score-sheet-round-strip-head">
+                <span className="score-sheet-panel-label">Round Track</span>
+                <strong>
+                  {currentRound} / {totalRounds}
+                </strong>
+              </div>
+              <div className="score-sheet-round-track">
+                {Array.from({ length: totalRounds }, (_, index) => {
+                  const round = index + 1;
+                  const state =
+                    round < currentRound ? "complete" : round === currentRound ? "active" : "upcoming";
+                  const rewardLabel = getRoundRewardLabel(round);
+
+                  return (
+                    <div
+                      key={`round-${round}`}
+                      className={`score-sheet-round-step score-sheet-round-step-${state}`}
+                    >
+                      <div className="score-sheet-round-step-number">{round}</div>
+                      <div className="score-sheet-round-step-meta">{rewardLabel ?? " "}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="score-sheet-resource-lanes">
+              <ResourceTrack
+                label="Reroll"
+                title="重投"
+                accent="reroll"
+                token="R"
+                available={player.sheet.resources.rerolls}
+                gained={player.sheet.resourceTracks.rerolls.gained}
+                spent={player.sheet.resourceTracks.rerolls.spent}
+              />
+              <ResourceTrack
+                label="Plus One"
+                title="+1"
+                accent="plus"
+                token="+1"
+                available={player.sheet.resources.extraDice}
+                gained={player.sheet.resourceTracks.extraDice.gained}
+                spent={player.sheet.resourceTracks.extraDice.spent}
+              />
+            </div>
           </div>
         </header>
 
@@ -126,6 +222,73 @@ export function ScoreSheetBoard({
             <strong className="score-sheet-total-value">{breakdown.total}</strong>
           </div>
         </footer>
+      </div>
+    </div>
+  );
+}
+
+const RESOURCE_TRACK_BASE_SLOTS = 7;
+
+function getRoundRewardLabel(round: number) {
+  switch (round) {
+    case 1:
+      return "R";
+    case 2:
+      return "+1";
+    case 3:
+      return "R";
+    case 4:
+      return "X | 6";
+    default:
+      return null;
+  }
+}
+
+function ResourceTrack({
+  label,
+  title,
+  accent,
+  token,
+  available,
+  gained,
+  spent
+}: {
+  label: string;
+  title: string;
+  accent: "reroll" | "plus";
+  token: string;
+  available: number;
+  gained: number;
+  spent: number;
+}) {
+  const totalSlots = Math.max(RESOURCE_TRACK_BASE_SLOTS, gained, spent + available);
+
+  return (
+    <div className="score-sheet-resource-lane">
+      <div className="score-sheet-resource-lane-head">
+        <span className="score-sheet-panel-label">{label}</span>
+        <strong>{title}</strong>
+      </div>
+      <div className="score-sheet-resource-lane-body">
+        <div className={`score-sheet-resource-icon score-sheet-resource-icon-${accent}`}>
+          <RewardGlyph token={token} />
+        </div>
+        <div className="score-sheet-resource-track">
+          {Array.from({ length: totalSlots }, (_, index) => {
+            const state =
+              index < spent ? "used" : index < spent + available ? "available" : "empty";
+
+            return (
+              <div
+                key={`${label}-${index + 1}`}
+                className={`score-sheet-resource-mark score-sheet-resource-mark-${state}`}
+                aria-hidden="true"
+              >
+                {state === "used" ? <SheetCrossGlyph className="score-sheet-resource-cross-svg" /> : null}
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

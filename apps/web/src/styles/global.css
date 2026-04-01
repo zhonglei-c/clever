@@ -464,9 +464,7 @@ a {
 
 .score-sheet-stage {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 260px;
-  align-items: start;
-  gap: 16px;
+  grid-template-columns: minmax(0, 1fr);
   margin-top: 22px;
 }
 
@@ -488,7 +486,7 @@ a {
   display: grid;
   grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
   grid-template-areas:
-    "head head"
+    "top top"
     "yellow blue"
     "green green"
     "orange orange"
@@ -541,14 +539,137 @@ a {
   fill: rgba(55, 61, 69, 0.24);
 }
 
-.score-sheet-masthead {
-  grid-area: head;
+.score-sheet-topbar {
+  grid-area: top;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
-  gap: 16px;
+  grid-template-columns: 168px minmax(0, 1fr);
+  gap: 14px;
+  align-items: stretch;
+}
+
+.score-sheet-used-dice,
+.score-sheet-topbar-main {
+  border-radius: 22px;
+  background: rgba(88, 88, 86, 0.78);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.18),
+    0 10px 24px rgba(32, 39, 45, 0.08);
+}
+
+.score-sheet-used-dice {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.score-sheet-used-dice-head,
+.score-sheet-round-strip-head,
+.score-sheet-resource-lane-head {
+  display: flex;
   align-items: center;
-  padding: 8px 12px 14px;
-  border-bottom: 2px solid rgba(46, 53, 60, 0.12);
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.score-sheet-panel-label {
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.66);
+}
+
+.score-sheet-used-dice-head strong,
+.score-sheet-round-strip-head strong,
+.score-sheet-resource-lane-head strong {
+  color: rgba(255, 255, 255, 0.96);
+  font-size: 0.95rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+}
+
+.score-sheet-used-dice-slots {
+  display: grid;
+  gap: 12px;
+}
+
+.score-sheet-used-die-slot {
+  min-height: 106px;
+  position: relative;
+  display: grid;
+  place-items: center;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.22);
+  box-shadow:
+    inset 0 0 0 6px rgba(22, 24, 29, 0.92),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22);
+}
+
+.score-sheet-used-die-slot-filled {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(241, 241, 238, 0.94));
+}
+
+.score-sheet-used-die-color {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  box-shadow: 0 0 0 2px rgba(18, 19, 23, 0.16);
+}
+
+.score-sheet-used-die-color-yellow {
+  background: #f4cb2f;
+}
+
+.score-sheet-used-die-color-blue {
+  background: #2e89d1;
+}
+
+.score-sheet-used-die-color-green {
+  background: #1ba74d;
+}
+
+.score-sheet-used-die-color-orange {
+  background: #ef8b18;
+}
+
+.score-sheet-used-die-color-purple {
+  background: #6f3f97;
+}
+
+.score-sheet-used-die-color-white {
+  background: #ffffff;
+}
+
+.score-sheet-used-die-value,
+.score-sheet-used-die-placeholder {
+  font-size: 2.25rem;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.score-sheet-used-die-value {
+  color: rgba(20, 23, 28, 0.94);
+}
+
+.score-sheet-used-die-placeholder {
+  color: rgba(255, 255, 255, 0.52);
+}
+
+.score-sheet-topbar-main {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.score-sheet-topbar-head {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 16px;
 }
 
 .score-sheet-brand {
@@ -557,29 +678,171 @@ a {
 }
 
 .score-sheet-brand-line {
-  font-size: 0.82rem;
+  font-size: 0.74rem;
   font-weight: 900;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: rgba(72, 77, 84, 0.74);
+  color: rgba(255, 255, 255, 0.66);
 }
 
 .score-sheet-brand-title {
-  font-size: clamp(1.35rem, 2vw, 1.85rem);
+  font-size: clamp(1.2rem, 1.8vw, 1.65rem);
   font-weight: 950;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: rgba(48, 54, 61, 0.92);
+  color: rgba(255, 255, 255, 0.96);
 }
 
-.score-sheet-masthead-meta {
+.score-sheet-summary-strip {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: end;
+  gap: 8px;
+}
+
+.score-sheet-summary-pill {
+  min-width: 88px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 999px;
+  background: rgba(17, 19, 24, 0.32);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+}
+
+.score-sheet-summary-pill span {
+  color: rgba(255, 255, 255, 0.76);
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.score-sheet-summary-pill strong {
+  color: rgba(255, 255, 255, 0.96);
+  font-size: 0.94rem;
+}
+
+.score-sheet-round-strip,
+.score-sheet-resource-lane {
   display: grid;
-  gap: 4px;
-  justify-items: end;
-  font-size: 0.8rem;
-  font-weight: 700;
-  color: rgba(78, 84, 92, 0.72);
-  text-align: right;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+
+.score-sheet-round-track {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(82px, 1fr));
+  gap: 10px;
+}
+
+.score-sheet-round-step {
+  display: grid;
+  gap: 10px;
+  padding: 10px 10px 12px;
+  border-radius: 18px;
+  background: rgba(18, 20, 25, 0.86);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.score-sheet-round-step-active {
+  background: rgba(18, 20, 25, 0.96);
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 255, 255, 0.2),
+    0 0 0 2px rgba(255, 255, 255, 0.14);
+}
+
+.score-sheet-round-step-complete {
+  background: rgba(18, 20, 25, 0.92);
+}
+
+.score-sheet-round-step-number {
+  min-height: 70px;
+  display: grid;
+  place-items: center;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.96);
+  color: rgba(20, 23, 28, 0.96);
+  font-size: 2.15rem;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.score-sheet-round-step-meta {
+  min-height: 22px;
+  display: grid;
+  place-items: center;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 0.78rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.score-sheet-resource-lanes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.score-sheet-resource-lane-body {
+  display: grid;
+  grid-template-columns: 60px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+}
+
+.score-sheet-resource-icon {
+  min-height: 60px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  color: rgba(255, 255, 255, 0.98);
+  background: rgba(14, 16, 21, 0.92);
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 255, 255, 0.16),
+    0 6px 16px rgba(20, 24, 29, 0.18);
+}
+
+.score-sheet-resource-icon-plus {
+  background: rgba(18, 20, 25, 0.92);
+}
+
+.score-sheet-resource-track {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(34px, 1fr));
+  gap: 10px;
+}
+
+.score-sheet-resource-mark {
+  aspect-ratio: 1;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  border: 4px solid rgba(255, 255, 255, 0.82);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.score-sheet-resource-mark-available {
+  background: rgba(255, 255, 255, 0.98);
+}
+
+.score-sheet-resource-mark-used {
+  border-color: rgba(215, 219, 223, 0.82);
+  background: rgba(122, 128, 136, 0.55);
+}
+
+.score-sheet-resource-cross-svg {
+  width: 56%;
+  height: 56%;
+  stroke: rgba(22, 26, 31, 0.88);
+  stroke-width: 2.8;
+  stroke-linecap: round;
 }
 
 .score-sheet-zone {
@@ -1790,18 +2053,17 @@ a {
 }
 
 @media (max-width: 980px) {
-  .score-sheet-stage {
-    grid-template-columns: 1fr;
-  }
-
-  .score-sheet-masthead,
+  .score-sheet-topbar,
   .score-sheet-footer {
     grid-template-columns: 1fr;
   }
 
-  .score-sheet-masthead-meta {
-    justify-items: start;
-    text-align: left;
+  .score-sheet-resource-lanes {
+    grid-template-columns: 1fr;
+  }
+
+  .score-sheet-summary-strip {
+    justify-content: start;
   }
 
   .score-sheet-score-strip {
@@ -1811,7 +2073,7 @@ a {
   .score-sheet-board-content {
     grid-template-columns: minmax(0, 1fr);
     grid-template-areas:
-      "head"
+      "top"
       "yellow"
       "blue"
       "green"
@@ -1821,8 +2083,7 @@ a {
   }
 }
 
-.score-sheet-loading,
-.score-sheet-resource-panel {
+.score-sheet-loading {
   border-radius: 24px;
   padding: 18px;
   background:
@@ -1840,98 +2101,6 @@ a {
   place-items: center;
   color: rgba(76, 82, 90, 0.7);
   font-weight: 700;
-}
-
-.score-sheet-resource-panel {
-  display: grid;
-  gap: 14px;
-  position: sticky;
-  top: 16px;
-}
-
-.score-sheet-resource-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: end;
-  gap: 12px;
-  padding-bottom: 12px;
-  border-bottom: 2px solid rgba(52, 58, 66, 0.1);
-}
-
-.score-sheet-resource-head h2 {
-  margin: 0;
-  font-size: 1.12rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-
-.score-sheet-resource-head span {
-  font-size: 0.78rem;
-  font-weight: 700;
-  color: rgba(74, 80, 88, 0.68);
-  text-align: right;
-}
-
-.score-sheet-resource-eyebrow {
-  margin: 0 0 4px;
-  font-size: 0.7rem;
-  font-weight: 900;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: rgba(74, 80, 88, 0.58);
-}
-
-.resource-summary-grid {
-  display: grid;
-  gap: 10px;
-}
-
-.resource-summary-card {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 14px;
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.78);
-  border: 1px solid rgba(52, 58, 66, 0.1);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
-}
-
-.resource-summary-card span {
-  color: rgba(74, 80, 88, 0.78);
-  font-size: 0.84rem;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.resource-summary-card strong {
-  min-width: 44px;
-  display: inline-flex;
-  justify-content: center;
-  align-items: center;
-  padding: 8px 10px;
-  border-radius: 999px;
-  background: rgba(42, 49, 57, 0.92);
-  color: rgba(255, 250, 242, 0.96);
-  font-size: 1rem;
-}
-
-.resource-summary-meta {
-  display: grid;
-  gap: 8px;
-}
-
-.resource-summary-meta span {
-  display: block;
-  padding: 10px 12px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.62);
-  color: rgba(72, 78, 86, 0.8);
-  font-size: 0.88rem;
-  line-height: 1.45;
-  border: 1px solid rgba(52, 58, 66, 0.08);
 }
 
 .sheet-cell:disabled,

@@ -14,7 +14,9 @@ import {
   applyPlacementToSheet,
   createEmptyPlayerSheet,
   enqueueSheetBonuses,
+  gainPlayerResource,
   resolvePendingBonus,
+  spendTrackedPlayerResource,
   type PendingSheetBonus,
   type SheetPlacement
 } from "../rules/player-sheet";
@@ -810,27 +812,20 @@ function grantRoundStartAction(
 ): PlayerSheetSnapshot {
   return {
     ...player,
-    sheet: {
-      ...player.sheet,
-      resources: {
-        ...player.sheet.resources,
-        rerolls: player.sheet.resources.rerolls + (bonus === "reroll" ? 1 : 0),
-        extraDice: player.sheet.resources.extraDice + (bonus === "extra-die" ? 1 : 0)
-      }
-    }
+    sheet: gainPlayerResource(
+      player.sheet,
+      bonus === "reroll" ? "rerolls" : "extraDice",
+    )
   };
 }
 
 function expireEndgameActions(players: PlayerSheetSnapshot[]) {
   return players.map((player) => ({
     ...player,
-    sheet: {
-      ...player.sheet,
-      resources: {
-        ...player.sheet.resources,
-        rerolls: 0
-      }
-    }
+    sheet:
+      player.sheet.resources.rerolls > 0
+        ? spendTrackedPlayerResource(player.sheet, "rerolls", player.sheet.resources.rerolls)
+        : player.sheet
   }));
 }
 
@@ -904,15 +899,7 @@ function maybeConsumePlayerResource(
     return sheet;
   }
 
-  invariant(sheet.resources[resourceKey] > 0, `No ${resourceKey} resource is available.`);
-
-  return {
-    ...sheet,
-    resources: {
-      ...sheet.resources,
-      [resourceKey]: sheet.resources[resourceKey] - 1
-    }
-  };
+  return spendTrackedPlayerResource(sheet, resourceKey);
 }
 
 function resetPlayerTurnState(players: PlayerSheetSnapshot[]) {

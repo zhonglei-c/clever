@@ -218,6 +218,14 @@
 
 ## Handoff Note - 2026-03-31 (Rulebook Alignment Pass)
 
+## Handoff Note - 2026-04-01 (Top Grey Panel Pass)
+
+- 本阶段完成：对局页计分纸已补上顶部灰区，包含 3 个已选骰槽、按实际 `totalRounds` 动态显示的轮次轨，以及按设计稿改造的 `reroll / +1` 资源记录轨；右侧重复的 `Companion / Resources / Bonus and stock` 面板已移除。
+- 当前进行中：顶部已选骰和右侧骰池/操作面板还是“两处同时可见”的状态，后续还可以继续整合视觉层级；顶部资源轨已接真实 gained/spent 数据，但暂未把“点击资源立即使用”直接收进纸面。
+- 下一个建议动作：优先做一轮真人联机手测，确认顶部灰区在主动选骰、被动拿骰、奖励解析和额外骰动作中都能稳定反映状态；之后继续整合右侧骰池与操作区。
+- 风险/阻塞：当前规则层仍保留“被动玩家在银盘全不可用时，可改从主动玩家已选骰里拿”的实现；顶部 3 个白框现在是视觉上的已选骰展示，不代表这条规则被删除。
+- 已更新的清单项：`PROJECT_BOARD.md` 中 UI 待办备注已同步改成部分完成状态。
+
 ## Handoff Note - 2026-04-01 (Green + Orange + Purple Underlay Pass)
 
 - `ScoreSheetBoard.tsx` now gives green, orange, and purple their own track-shell underlays, matching the yellow/blue direction from the previous pass. All five major colored areas now use SVG-backed interior framing in some form.
