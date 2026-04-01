@@ -1,46 +1,17 @@
 import type { DieId, DieValue } from "@clever/shared";
-
-export type SheetZoneId = "yellow" | "blue" | "green" | "orange" | "purple";
-export type YellowCellId =
-  | "y-r1c1"
-  | "y-r1c2"
-  | "y-r1c3"
-  | "y-r1c4"
-  | "y-r2c1"
-  | "y-r2c2"
-  | "y-r2c3"
-  | "y-r2c4"
-  | "y-r3c1"
-  | "y-r3c2"
-  | "y-r3c3"
-  | "y-r3c4";
-export type BlueCellId =
-  | "b-r1c1"
-  | "b-r1c2"
-  | "b-r2c1"
-  | "b-r2c3"
-  | "b-r2c4"
-  | "b-r3c2"
-  | "b-r3c3"
-  | "b-r3c4"
-  | "b-r4c2"
-  | "b-r4c3"
-  | "b-r4c4";
-
-interface YellowCellDefinition {
-  id: YellowCellId;
-  row: 1 | 2 | 3;
-  column: 1 | 2 | 3 | 4;
-  value: 1 | 2 | 3 | 4 | 5 | 6;
-  onDiagonal: boolean;
-}
-
-interface BlueCellDefinition {
-  id: BlueCellId;
-  row: 1 | 2 | 3 | 4;
-  column: 1 | 2 | 3 | 4;
-  sum: number;
-}
+import {
+  BLUE_CELLS,
+  BLUE_CELL_IDS,
+  GREEN_THRESHOLD_TRACK,
+  ORANGE_TRACK_LENGTH,
+  PURPLE_TRACK_LENGTH,
+  SHEET_ZONE_IDS,
+  type BlueCellId,
+  type SheetZoneId,
+  YELLOW_CELLS,
+  YELLOW_CELL_IDS,
+  type YellowCellId
+} from "./score-sheet-spec";
 
 export interface YellowZoneState {
   markedCellIds: YellowCellId[];
@@ -58,6 +29,7 @@ export interface BlueZoneState {
 
 export interface GreenZoneState {
   filledThresholds: number[];
+  values?: number[];
 }
 
 export interface OrangeZoneState {
@@ -165,17 +137,13 @@ export interface ApplyPlacementResult {
   triggeredBonuses: PendingSheetBonus[];
 }
 
-export const SHEET_ZONE_IDS: SheetZoneId[] = [
-  "yellow",
-  "blue",
-  "green",
-  "orange",
-  "purple"
-];
+export type { BlueCellId, SheetZoneId, YellowCellId } from "./score-sheet-spec";
+export {
+  BLUE_CELL_IDS,
+  SHEET_ZONE_IDS,
+  YELLOW_CELL_IDS
+} from "./score-sheet-spec";
 
-const GREEN_THRESHOLDS = [1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 6] as const;
-const ORANGE_MAX_SLOTS = 11;
-const PURPLE_MAX_SLOTS = 11;
 const YELLOW_COLUMN_SCORES = [10, 14, 16, 20] as const;
 const YELLOW_ROW_BONUSES: Record<1 | 2 | 3, NumberMarkBonus> = {
   1: {
@@ -370,37 +338,6 @@ const BLUE_COLUMN_BONUSES: Record<1 | 2 | 3 | 4, NumberMarkBonus> = {
     source: "blue-column-4"
   }
 };
-const YELLOW_CELLS: YellowCellDefinition[] = [
-  { id: "y-r1c1", row: 1, column: 1, value: 3, onDiagonal: true },
-  { id: "y-r1c2", row: 1, column: 2, value: 6, onDiagonal: false },
-  { id: "y-r1c3", row: 1, column: 3, value: 5, onDiagonal: false },
-  { id: "y-r1c4", row: 1, column: 4, value: 2, onDiagonal: false },
-  { id: "y-r2c1", row: 2, column: 1, value: 1, onDiagonal: false },
-  { id: "y-r2c2", row: 2, column: 2, value: 5, onDiagonal: true },
-  { id: "y-r2c3", row: 2, column: 3, value: 1, onDiagonal: false },
-  { id: "y-r2c4", row: 2, column: 4, value: 2, onDiagonal: false },
-  { id: "y-r3c1", row: 3, column: 1, value: 4, onDiagonal: false },
-  { id: "y-r3c2", row: 3, column: 2, value: 3, onDiagonal: false },
-  { id: "y-r3c3", row: 3, column: 3, value: 4, onDiagonal: true },
-  { id: "y-r3c4", row: 3, column: 4, value: 6, onDiagonal: false }
-];
-const BLUE_CELLS: BlueCellDefinition[] = [
-  { id: "b-r1c1", row: 1, column: 1, sum: 2 },
-  { id: "b-r1c2", row: 1, column: 2, sum: 3 },
-  { id: "b-r2c1", row: 2, column: 1, sum: 4 },
-  { id: "b-r2c3", row: 2, column: 3, sum: 5 },
-  { id: "b-r2c4", row: 2, column: 4, sum: 6 },
-  { id: "b-r3c2", row: 3, column: 2, sum: 7 },
-  { id: "b-r3c3", row: 3, column: 3, sum: 8 },
-  { id: "b-r3c4", row: 3, column: 4, sum: 9 },
-  { id: "b-r4c2", row: 4, column: 2, sum: 10 },
-  { id: "b-r4c3", row: 4, column: 3, sum: 11 },
-  { id: "b-r4c4", row: 4, column: 4, sum: 12 }
-];
-
-export const YELLOW_CELL_IDS = YELLOW_CELLS.map((cell) => cell.id);
-export const BLUE_CELL_IDS = BLUE_CELLS.map((cell) => cell.id);
-
 export function createEmptyPlayerSheet(): PlayerSheetState {
   return {
     yellow: {
@@ -423,7 +360,8 @@ export function createEmptyPlayerSheet(): PlayerSheetState {
       claimedColumnBonuses: []
     },
     green: {
-      filledThresholds: []
+      filledThresholds: [],
+      values: []
     },
     orange: {
       values: []
@@ -650,9 +588,9 @@ function applyGreenPlacement(
   );
 
   const nextIndex = sheet.green.filledThresholds.length;
-  invariant(nextIndex < GREEN_THRESHOLDS.length, "Green area is already full.");
+  invariant(nextIndex < GREEN_THRESHOLD_TRACK.length, "Green area is already full.");
 
-  const threshold = GREEN_THRESHOLDS[nextIndex];
+  const threshold = GREEN_THRESHOLD_TRACK[nextIndex];
   invariant(
     context.die.value >= threshold,
     `Green area requires a value of at least ${threshold}.`,
@@ -662,7 +600,8 @@ function applyGreenPlacement(
     sheet: {
       ...sheet,
       green: {
-        filledThresholds: [...sheet.green.filledThresholds, threshold]
+        filledThresholds: [...sheet.green.filledThresholds, threshold],
+        values: [...(sheet.green.values ?? []), context.die.value]
       }
     },
     usedValue: context.die.value,
@@ -678,7 +617,7 @@ function applyOrangePlacement(
     context.die.color === "orange" || context.die.color === "white",
     "Orange area can only use orange or white dice.",
   );
-  invariant(sheet.orange.values.length < ORANGE_MAX_SLOTS, "Orange area is already full.");
+  invariant(sheet.orange.values.length < ORANGE_TRACK_LENGTH, "Orange area is already full.");
 
   return {
     sheet: {
@@ -700,7 +639,7 @@ function applyPurplePlacement(
     context.die.color === "purple" || context.die.color === "white",
     "Purple area can only use purple or white dice.",
   );
-  invariant(sheet.purple.values.length < PURPLE_MAX_SLOTS, "Purple area is already full.");
+  invariant(sheet.purple.values.length < PURPLE_TRACK_LENGTH, "Purple area is already full.");
 
   const previousValue = sheet.purple.values.at(-1);
 

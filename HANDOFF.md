@@ -218,6 +218,81 @@
 
 ## Handoff Note - 2026-03-31 (Rulebook Alignment Pass)
 
+## Handoff Note - 2026-04-01 (Green + Orange + Purple Underlay Pass)
+
+- `ScoreSheetBoard.tsx` now gives green, orange, and purple their own track-shell underlays, matching the yellow/blue direction from the previous pass. All five major colored areas now use SVG-backed interior framing in some form.
+- The green threshold rail, orange track, and purple track now render interactive cells above dedicated SVG rails instead of relying only on plain grid scaffolding.
+- `global.css` now contains shared shell layering for these three tracks, with per-zone frame/line styling so the paper skeleton is more consistent across the whole board.
+- Verification after this pass: `npm run typecheck`, `npm run build`, and `npm run test` all passed.
+- Next recommended step: shift from broad skeleton work into fidelity work, especially the exact icon placement, printed label styling, and any remaining zone-specific geometry mismatches against the uploaded reference images.
+
+## Handoff Note - 2026-04-01 (Yellow + Blue SVG Underlay Pass)
+
+- `ScoreSheetBoard.tsx` now gives the yellow and blue interiors dedicated SVG underlay layers. The yellow connector network is no longer built from per-cell pseudo-elements, and the blue grid now has a printed-frame underlay beneath the formula tile and sum cells.
+- `global.css` was updated so the yellow and blue grids render above these underlays, keeping the interactive cells unchanged while shifting more of the “paper skeleton” into SVG-backed structure.
+- This is the first interior-zone move away from box-model tricks and toward an SVG-native board shell. Green / orange / purple still use mostly CSS scaffolding.
+- Verification after this pass: `npm run typecheck`, `npm run build`, and `npm run test` all passed.
+- Next recommended step: apply the same underlay pattern to the green / orange / purple tracks so the board’s internal framing stops mixing SVG and pseudo-element scaffolds zone by zone.
+
+## Handoff Note - 2026-04-01 (Companion Panel Pass)
+
+- `GamePage.tsx` no longer pairs the new sheet with the old generic card panel. The resource area now uses a dedicated companion-panel structure with a loading state, a custom header, stacked resource summaries, and note blocks.
+- `global.css` now lays out the board stage as `sheet + companion panel` on desktop and collapses it to one column on smaller screens, so the main score sheet and the side status panel feel like one composed surface instead of mismatched widgets.
+- A dead legacy tail was removed from the stylesheet: the unused `threshold-*`, `track-*`, and old resource-card helper styles are gone after the resource panel switched to its new classes.
+- Verification after this pass: `npm run typecheck`, `npm run build`, and `npm run test` all passed.
+- Next recommended step: keep pushing the board itself toward SVG-native interior framing, especially the yellow connectors and the blue/green/orange/purple track scaffolding, so fewer of the original paper cues rely on box-model tricks.
+
+## Handoff Note - 2026-04-01 (Chrome + Zone Header Pass)
+
+- `ScoreSheetBoard.tsx` now renders through a dedicated board chrome layer plus a `score-sheet-board-content` grid. The live sheet has an inline SVG paper frame with top and bottom rules, corner dots, and a more unified printed-board silhouette.
+- Zone titles were refactored into a shared `ZoneHeader` component so yellow / blue / green / orange / purple now use the same printed label structure instead of ad-hoc section headings.
+- `global.css` was cleaned again: several unused helper selectors were removed, and the score sheet root was restructured so decorative chrome and interactive content are layered separately.
+- Verification after this pass: `npm run typecheck`, `npm run build`, and `npm run test` all passed.
+- Next recommended step: move more of the color-zone borders and connecting marks into SVG so the shell, title band, and interior framing stop being split between CSS boxes and SVG decoration.
+
+## Handoff Note - 2026-04-01 (Board Framing Pass)
+
+- `ScoreSheetBoard.tsx` now includes a paper-style masthead and a footer score strip so the live board reads more like a single printed score sheet and less like isolated color blocks.
+- The footer uses `scorePlayerSheet()` directly from `game-core` to show per-zone running scores plus fox bonus and total, giving the UI a visible end-of-sheet anchor without inventing separate frontend math.
+- `global.css` was pruned further: a batch of dead legacy card-layout selectors and unused zone-specific leftovers were removed while keeping the active `ScoreSheetBoard` styles intact.
+- Verification after this pass: `npm run typecheck`, `npm run build`, and `npm run test` all passed.
+- Next recommended step: keep trimming unused legacy CSS, then move the board shell itself toward a more SVG-native composition so the top title band, zone borders, and bottom score boxes share one visual language.
+
+## Handoff Note - 2026-03-31 (Legacy Sheet Removal Pass)
+
+- `GamePage.tsx` no longer carries the hidden legacy five-card score-sheet JSX. The live page now mounts only `ScoreSheetBoard.tsx` for the main sheet path, plus the resource side panel.
+- The score-sheet selection helpers that were duplicated inside `GamePage.tsx` are now sourced only from `apps/web/src/pages/game/scoreSheetSelection.ts`. This removes the risk of the UI using stale yellow / blue legality logic after spec updates.
+- A large block of dead legacy render code was removed from `GamePage.tsx`, including the old yellow / blue / green / orange / purple renderers and their local display constants.
+- The now-unused `.score-sheet-layout` and `.score-sheet-layout-legacy` CSS hooks were removed from `apps/web/src/styles/global.css`.
+- Verification after this cleanup: `npm run typecheck`, `npm run build`, and `npm run test` all passed.
+- Next recommended step: continue the cleanup in CSS by pruning legacy zone-specific styles that are no longer referenced, then spend the saved space on refining `ScoreSheetBoard.tsx` toward a single SVG-native score sheet.
+
+## Handoff Note - 2026-03-31 (Continuous Sheet Pass)
+
+- This pass moved the live board renderer onto a shared sheet spec path. `packages/game-core/src/rules/score-sheet-spec.ts` now owns the actively used yellow / blue / green / orange / purple display constants for the new board component.
+- A new `apps/web/src/pages/game/ScoreSheetBoard.tsx` now renders the main player sheet as one continuous board shell instead of the old five-card layout. `GamePage.tsx` has been switched to this new renderer, while the legacy layout is still present but hidden so compilation stays stable during the migration.
+- Yellow and blue now keep their printed numbers visible and draw an overlaid `X` after selection. Green shows the actual written value in filled boxes. Orange and purple continue to write the selected number directly into the slot.
+- The uploaded per-zone reference images were used to realign several display-side reward positions and labels, especially in yellow, blue, orange, and purple. This is a visual/spec pass, not yet a full rule-semantics reconciliation.
+- Next recommended step: keep shrinking `GamePage.tsx` by removing the hidden legacy renderer, then start the next pass toward a single SVG score-sheet and board-native icon set.
+- Known risk: some yellow/blue reward semantics in `game-core` still reflect the earlier approximation, so visual positions are now closer to the source sheet than the underlying bonus model.
+
+## Handoff Note - 2026-03-31 (Reward Glyph Pass)
+
+- `ScoreSheetBoard.tsx` now renders a first board-native glyph layer for rewards. `X`, reroll, and fox markers are no longer plain text only; they use a shared inline-SVG treatment so the reward rail reads more like a printed board and less like generic pills.
+- The new glyph treatment is already wired into yellow row rewards, the yellow corner reward, blue row rewards, blue bottom rewards, and the green / orange / purple milestone markers.
+- Verification after this pass: `npm run typecheck`, `npm run build`, and `npm run test` all passed.
+- The hidden legacy score-sheet JSX is still present in `GamePage.tsx`; it remains intentionally hidden for now, and should be deleted in the next cleanup pass once the team is comfortable that the new board path fully covers all interaction needs.
+
+## Handoff Note - 2026-03-31 (GamePage Stabilization Pass)
+
+- A cleanup attempt on `GamePage.tsx` exposed how brittle the old mixed-encoding legacy block is. The file has been restored to a stable baseline and the active page path now cleanly mounts `ScoreSheetBoard` again.
+- Current safe state:
+  - `ScoreSheetBoard.tsx` remains the visible main sheet renderer.
+  - Reward glyph styling remains active.
+  - The legacy sheet renderer is still hidden behind `score-sheet-layout-legacy` rather than deleted.
+- Verification after recovery: `npm run typecheck`, `npm run build`, and `npm run test` all passed again.
+- Recommended next step: do the eventual legacy deletion in smaller slices, or migrate more behavior out of `GamePage.tsx` first so the final removal is mechanical instead of surgical.
+
 - 本阶段完成：站内规则页 [apps/web/src/pages/rules/rules-content.ts](/Users/zhonglei/work/clever/apps/web/src/pages/rules/rules-content.ts) 已按用户提供的 rulebook 重写为中英文纸规版；`extra-die` 已从伪 `+1/-1` 修正改成真实的“回合末额外再选 1 颗骰子”；主动玩家“本掷无合法落点”现在会记为空过并消耗一次常规掷骰机会；被动玩家“银盘无合法骰”现在会改从主动玩家骰位里拿 1 颗，只有两边都不合法时才允许跳过。
 - 当前进行中：继续把剩余纸规差异往实现上收口，尤其是前四轮 round tracker 奖励、4 人局轮数、终局尾声里的 `extra-die / reroll / tie-break`。
 - 下一个建议动作：优先做三件事：1. 接 round tracker 奖励与第 4 轮黑色二选一。2. 修正 4 人局轮数与终局 tie-break。3. 做一轮 2-3 人真人长局，重点回归 `extra-die`、主动空过、被动主动骰位补救。
