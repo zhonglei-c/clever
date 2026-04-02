@@ -41,9 +41,9 @@ interface ScoreSheetBoardProps {
   currentRound: number;
   totalRounds: number;
   selection: ScoreSheetBoardSelection;
+  previewPlacement: SheetPlacement | null;
+  previewValue: number | null;
   onSelect: (placement: SheetPlacement) => void;
-  orangePreviewValue: number | null;
-  purplePreviewValue: number | null;
 }
 
 export function ScoreSheetBoard({
@@ -52,9 +52,9 @@ export function ScoreSheetBoard({
   currentRound,
   totalRounds,
   selection,
+  previewPlacement,
+  previewValue,
   onSelect,
-  orangePreviewValue,
-  purplePreviewValue
 }: ScoreSheetBoardProps) {
   const breakdown = scorePlayerSheet(player.sheet);
 
@@ -169,7 +169,7 @@ export function ScoreSheetBoard({
           }`}
         >
           <ZoneHeader label="Yellow" count={`${player.sheet.yellow.markedCellIds.length}/12`} tone="yellow" />
-          {renderYellowZone(player, selection, onSelect)}
+          {renderYellowZone(player, selection, previewPlacement, onSelect)}
         </section>
 
         <section
@@ -178,7 +178,7 @@ export function ScoreSheetBoard({
           }`}
         >
           <ZoneHeader label="Blue" count={`${player.sheet.blue.markedCellIds.length}/11`} tone="blue" />
-          {renderBlueZone(player, selection, onSelect)}
+          {renderBlueZone(player, selection, previewPlacement, onSelect)}
         </section>
 
         <section
@@ -187,7 +187,7 @@ export function ScoreSheetBoard({
           }`}
         >
           <ZoneHeader label="Green" count={`${player.sheet.green.filledThresholds.length}/11`} tone="green" />
-          {renderGreenZone(player, selection, onSelect)}
+          {renderGreenZone(player, selection, previewPlacement, previewValue, onSelect)}
         </section>
 
         <section
@@ -196,7 +196,7 @@ export function ScoreSheetBoard({
           }`}
         >
           <ZoneHeader label="Orange" count={`${player.sheet.orange.values.length}/${ORANGE_TRACK_LENGTH}`} tone="orange" />
-          {renderOrangeZone(player, selection, onSelect, orangePreviewValue)}
+          {renderOrangeZone(player, selection, previewPlacement, previewValue, onSelect)}
         </section>
 
         <section
@@ -205,7 +205,7 @@ export function ScoreSheetBoard({
           }`}
         >
           <ZoneHeader label="Purple" count={`${player.sheet.purple.values.length}/${PURPLE_TRACK_LENGTH}`} tone="purple" />
-          {renderPurpleZone(player, selection, onSelect, purplePreviewValue)}
+          {renderPurpleZone(player, selection, previewPlacement, previewValue, onSelect)}
         </section>
 
         <footer className="score-sheet-footer">
@@ -225,6 +225,13 @@ export function ScoreSheetBoard({
       </div>
     </div>
   );
+}
+
+function isPreviewPlacement(
+  previewPlacement: SheetPlacement | null,
+  placement: SheetPlacement,
+) {
+  return previewPlacement?.zone === placement.zone && previewPlacement?.cellId === placement.cellId;
 }
 
 const RESOURCE_TRACK_BASE_SLOTS = 7;
@@ -399,6 +406,7 @@ function FormulaDieGlyph({ tone }: { tone: "blue" | "white" }) {
 function renderYellowZone(
   player: PlayerSheetSnapshot,
   selection: ScoreSheetBoardSelection,
+  previewPlacement: SheetPlacement | null,
   onSelect: (placement: SheetPlacement) => void,
 ) {
   const marked = new Set(player.sheet.yellow.markedCellIds);
@@ -440,6 +448,7 @@ function renderYellowZone(
 
                 const isMarked = marked.has(entry.cellId);
                 const isActionable = selection.activeYellowCellIds.has(entry.cellId);
+                const isPreviewed = isPreviewPlacement(previewPlacement, { zone: "yellow", cellId: entry.cellId });
                 const printedValue = YELLOW_VALUE_BY_CELL[entry.cellId];
 
                 return (
@@ -450,7 +459,7 @@ function renderYellowZone(
                     <button
                       className={`sheet-cell yellow-cell-face ${isMarked ? "yellow-cell-filled" : ""} ${
                         isActionable ? "sheet-cell-actionable" : ""
-                      }`}
+                      } ${isPreviewed ? "sheet-cell-previewed yellow-cell-previewed" : ""}`}
                       title={
                         isMarked
                           ? `Yellow ${printedValue} already crossed off`
@@ -465,6 +474,16 @@ function renderYellowZone(
                         <>
                           <span className="yellow-cell-number yellow-cell-number-crossed">{printedValue}</span>
                           <span className="yellow-cell-cross" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" className="yellow-cell-cross-svg">
+                              <path d="M6 6 18 18" />
+                              <path d="M18 6 6 18" />
+                            </svg>
+                          </span>
+                        </>
+                      ) : isPreviewed ? (
+                        <>
+                          <span className="yellow-cell-number yellow-cell-number-crossed">{printedValue}</span>
+                          <span className="yellow-cell-cross yellow-cell-cross-preview" aria-hidden="true">
                             <svg viewBox="0 0 24 24" className="yellow-cell-cross-svg">
                               <path d="M6 6 18 18" />
                               <path d="M18 6 6 18" />
@@ -527,6 +546,7 @@ function renderYellowZone(
 function renderBlueZone(
   player: PlayerSheetSnapshot,
   selection: ScoreSheetBoardSelection,
+  previewPlacement: SheetPlacement | null,
   onSelect: (placement: SheetPlacement) => void,
 ) {
   const marked = new Set(player.sheet.blue.markedCellIds);
@@ -582,6 +602,7 @@ function renderBlueZone(
             if (slot.kind === "fillable" && slot.cellId) {
               const isMarked = marked.has(slot.cellId);
               const isActionable = selection.activeBlueCellIds.has(slot.cellId);
+              const isPreviewed = isPreviewPlacement(previewPlacement, { zone: "blue", cellId: slot.cellId });
               const sum = BLUE_SUM_BY_CELL[slot.cellId];
 
               return (
@@ -589,7 +610,7 @@ function renderBlueZone(
                   key={slot.id}
                   className={`sheet-cell blue-sum-cell ${isMarked ? "blue-sum-cell-filled" : ""} ${
                     isActionable ? "sheet-cell-actionable" : ""
-                  }`}
+                  } ${isPreviewed ? "sheet-cell-previewed blue-sum-cell-previewed" : ""}`}
                   style={slotStyle}
                   title={
                     isMarked
@@ -605,6 +626,13 @@ function renderBlueZone(
                     <>
                       <span className="blue-sum-number blue-sum-number-crossed">{sum}</span>
                       <span className="blue-sum-cross" aria-hidden="true">
+                        <SheetCrossGlyph className="blue-sum-cross-svg" />
+                      </span>
+                    </>
+                  ) : isPreviewed ? (
+                    <>
+                      <span className="blue-sum-number blue-sum-number-crossed">{sum}</span>
+                      <span className="blue-sum-cross blue-sum-cross-preview" aria-hidden="true">
                         <SheetCrossGlyph className="blue-sum-cross-svg" />
                       </span>
                     </>
@@ -709,6 +737,8 @@ function BlueBoardBackdrop() {
 function renderGreenZone(
   player: PlayerSheetSnapshot,
   selection: ScoreSheetBoardSelection,
+  previewPlacement: SheetPlacement | null,
+  previewValue: number | null,
   onSelect: (placement: SheetPlacement) => void,
 ) {
   const filled = new Set(player.sheet.green.filledThresholds.map((value, index) => `${value}-${index}`));
@@ -737,18 +767,21 @@ function renderGreenZone(
               const key = `${value}-${index}`;
               const isFilled = filled.has(key);
               const isActionable = !isFilled && index === nextIndex && selection.activeGreen;
+              const isPreviewed = !isFilled && index === nextIndex && isPreviewPlacement(previewPlacement, { zone: "green" });
 
               return (
                 <button
                   key={key}
                   className={`green-threshold-cell ${isFilled ? "green-threshold-cell-filled" : ""} ${
                     isActionable ? "sheet-cell-actionable" : ""
-                  }`}
+                  } ${isPreviewed ? "sheet-cell-previewed green-threshold-cell-previewed" : ""}`}
                   title={
                     isFilled
                       ? `Green threshold ${value} already filled`
-                      : isActionable
-                        ? `Write your die in the next green box`
+                      : isPreviewed
+                        ? `Preview ${previewValue ?? "current value"} in the next green box`
+                        : isActionable
+                          ? `Write your die in the next green box`
                         : `Green threshold ${value} is not available right now`
                   }
                   onClick={() => onSelect({ zone: "green" })}
@@ -757,6 +790,11 @@ function renderGreenZone(
                   {isFilled ? (
                     <>
                       <span className="green-threshold-value">{enteredValues[index] ?? ""}</span>
+                      <span className="green-threshold-corner">{`>=${value}`}</span>
+                    </>
+                  ) : isPreviewed && typeof previewValue === "number" ? (
+                    <>
+                      <span className="green-threshold-value green-threshold-value-preview">{previewValue}</span>
                       <span className="green-threshold-corner">{`>=${value}`}</span>
                     </>
                   ) : (
@@ -792,8 +830,9 @@ function renderGreenZone(
 function renderOrangeZone(
   player: PlayerSheetSnapshot,
   selection: ScoreSheetBoardSelection,
-  onSelect: (placement: SheetPlacement) => void,
+  previewPlacement: SheetPlacement | null,
   previewValue: number | null,
+  onSelect: (placement: SheetPlacement) => void,
 ) {
   const values = player.sheet.orange.values;
   const nextIndex = values.length;
@@ -809,6 +848,7 @@ function renderOrangeZone(
               const value = values[index];
               const isFilled = typeof value === "number";
               const isActionable = !isFilled && index === nextIndex && selection.activeOrange;
+              const isPreviewed = !isFilled && index === nextIndex && isPreviewPlacement(previewPlacement, { zone: "orange" });
               const multiplier = ORANGE_MULTIPLIER_MARKERS.find((marker) => marker.index === index + 1);
 
               return (
@@ -816,18 +856,20 @@ function renderOrangeZone(
                   <button
                     className={`orange-slot-cell ${isFilled ? "orange-slot-cell-filled" : ""} ${
                       isActionable ? "sheet-cell-actionable" : ""
-                    }`}
+                    } ${isPreviewed ? "sheet-cell-previewed orange-slot-cell-previewed" : ""}`}
                     title={
                       isFilled
                         ? `Orange slot ${index + 1} contains ${value}`
-                        : isActionable
-                          ? `Write ${previewValue ?? "the current value"} in orange`
+                        : isPreviewed
+                          ? `Preview ${previewValue ?? "current value"} in orange`
+                          : isActionable
+                            ? `Write ${previewValue ?? "the current value"} in orange`
                           : `Orange slot ${index + 1} is not available right now`
                     }
                     onClick={() => onSelect({ zone: "orange" })}
                     disabled={!isActionable}
                   >
-                    {isFilled ? value : isActionable && typeof previewValue === "number" ? previewValue : ""}
+                    {isFilled ? value : isPreviewed && typeof previewValue === "number" ? previewValue : ""}
                   </button>
                   {multiplier ? <span className="orange-multiplier">{multiplier.label}</span> : null}
                 </div>
@@ -860,8 +902,9 @@ function renderOrangeZone(
 function renderPurpleZone(
   player: PlayerSheetSnapshot,
   selection: ScoreSheetBoardSelection,
-  onSelect: (placement: SheetPlacement) => void,
+  previewPlacement: SheetPlacement | null,
   previewValue: number | null,
+  onSelect: (placement: SheetPlacement) => void,
 ) {
   const values = player.sheet.purple.values;
   const nextIndex = values.length;
@@ -877,18 +920,21 @@ function renderPurpleZone(
               const value = values[index];
               const isFilled = typeof value === "number";
               const isActionable = !isFilled && index === nextIndex && selection.activePurple;
+              const isPreviewed = !isFilled && index === nextIndex && isPreviewPlacement(previewPlacement, { zone: "purple" });
 
               return (
                 <button
                   key={`purple-${index}`}
                   className={`purple-slot-cell ${isFilled ? "purple-slot-cell-filled" : ""} ${
                     isActionable ? "sheet-cell-actionable" : ""
-                  }`}
+                  } ${isPreviewed ? "sheet-cell-previewed purple-slot-cell-previewed" : ""}`}
                   title={
                     isFilled
                       ? `Purple slot ${index + 1} contains ${value}`
-                      : isActionable
-                        ? `Write ${previewValue ?? "the current value"} in purple`
+                      : isPreviewed
+                        ? `Preview ${previewValue ?? "current value"} in purple`
+                        : isActionable
+                          ? `Write ${previewValue ?? "the current value"} in purple`
                         : `Purple slot ${index + 1} is not available right now`
                   }
                   onClick={() => onSelect({ zone: "purple" })}
@@ -896,7 +942,7 @@ function renderPurpleZone(
                 >
                   {isFilled ? (
                     <span className="purple-slot-value">{value}</span>
-                  ) : isActionable && typeof previewValue === "number" ? (
+                  ) : isPreviewed && typeof previewValue === "number" ? (
                     <span className="purple-slot-value purple-slot-value-preview">{previewValue}</span>
                   ) : null}
                 </button>

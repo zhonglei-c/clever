@@ -166,6 +166,31 @@ export function getTrackPreviewValue(
   return die.id === "purple" || die.id === "white" ? die.value : null;
 }
 
+export function getPlacementPreviewValue(
+  placement: SheetPlacement | null,
+  intent: SelectedIntent | null,
+  gameState: GameStateSnapshot | null,
+) {
+  if (!placement || !intent) {
+    return null;
+  }
+
+  switch (placement.zone) {
+    case "yellow":
+      return getYellowValueForIntent(intent);
+    case "blue":
+      return gameState ? getBlueTotalForIntent(intent, gameState) : null;
+    case "green":
+      return getGreenValueForIntent(intent);
+    case "orange":
+      return getTrackPreviewValue("orange", intent);
+    case "purple":
+      return getTrackPreviewValue("purple", intent);
+    default:
+      return null;
+  }
+}
+
 export function getBonusPlacements(bonus: PendingSheetBonus): SheetPlacement[] {
   switch (bonus.type) {
     case "wild-mark":
