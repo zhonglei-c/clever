@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+﻿import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import type {
@@ -65,7 +65,14 @@ export function GamePage() {
   const [pendingPlacement, setPendingPlacement] = useState<SheetPlacement | null>(null);
   const [rulesLanguage] = useState(getPreferredRulesLanguage);
   const [isTurnTopbarCollapsed, setIsTurnTopbarCollapsed] = useState(false);
+  const [boardStageMetrics, setBoardStageMetrics] = useState<{ scale: number; height: number | null }>({
+    scale: 1,
+    height: null,
+  });
   const previousTopbarVisibleRef = useRef(false);
+  const boardStageViewportRef = useRef<HTMLDivElement | null>(null);
+  const boardStageContentRef = useRef<HTMLDivElement | null>(null);
+  const scheduleBoardStageUpdateRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     if (!normalizedRoomId) {
@@ -260,6 +267,133 @@ export function GamePage() {
 
     previousTopbarVisibleRef.current = shouldShowTurnTopbar;
   }, [shouldShowTurnTopbar]);
+
+  useLayoutEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    let frameId = 0;
+    const resizeObserver = new ResizeObserver(() => {
+      scheduleUpdate();
+    });
+
+    const updateBoardStageMetrics = () => {
+      frameId = 0;
+
+      const viewport = boardStageViewportRef.current;
+      const content = boardStageContentRef.current;
+
+      if (!viewport || !content || window.innerWidth <= 900) {
+        setBoardStageMetrics((current) =>
+          current.scale === 1 && current.height === null ? current : { scale: 1, height: null },
+        );
+        return;
+      }
+
+      const rawHeight = content.offsetHeight;
+      const viewportTop = viewport.getBoundingClientRect().top;
+      const availableHeight = Math.max(0, window.innerHeight - viewportTop - 28);
+
+      if (!rawHeight || !availableHeight) {
+        return;
+      }
+
+      const nextScale = Math.min(1, availableHeight / rawHeight);
+      const nextHeight = Math.ceil(rawHeight * nextScale);
+
+      setBoardStageMetrics((current) => {
+        const scaleChanged = Math.abs(current.scale - nextScale) > 0.01;
+        const heightChanged = current.height !== nextHeight;
+
+        if (!scaleChanged && !heightChanged) {
+          return current;
+        }
+
+        return {
+          scale: nextScale,
+          height: nextHeight
+        };
+      });
+    };
+
+    function scheduleUpdate() {
+      if (frameId) {
+        return;
+      }
+
+      frameId = window.requestAnimationFrame(updateBoardStageMetrics);
+    }
+
+    scheduleBoardStageUpdateRef.current = scheduleUpdate;
+
+    if (boardStageViewportRef.current) {
+      resizeObserver.observe(boardStageViewportRef.current);
+    }
+
+    if (boardStageContentRef.current) {
+      resizeObserver.observe(boardStageContentRef.current);
+    }
+
+    scheduleUpdate();
+    window.addEventListener("resize", scheduleUpdate);
+
+    return () => {
+      if (frameId) {
+        window.cancelAnimationFrame(frameId);
+      }
+
+      scheduleBoardStageUpdateRef.current = null;
+      window.removeEventListener("resize", scheduleUpdate);
+      resizeObserver.disconnect();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const scheduleUpdate = scheduleBoardStageUpdateRef.current;
+    if (!scheduleUpdate) {
+      return;
+    }
+
+    const frameIds = [
+      window.requestAnimationFrame(() => {
+        scheduleUpdate();
+      }),
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          scheduleUpdate();
+        });
+      }),
+    ];
+    const timeoutIds = [
+      window.setTimeout(() => {
+        scheduleUpdate();
+      }, 0),
+      window.setTimeout(() => {
+        scheduleUpdate();
+      }, 120),
+    ];
+
+    let cancelled = false;
+
+    if ("fonts" in document) {
+      void document.fonts.ready.then(() => {
+        if (!cancelled) {
+          scheduleUpdate();
+        }
+      });
+    }
+
+    return () => {
+      cancelled = true;
+      frameIds.forEach((frameId) => window.cancelAnimationFrame(frameId));
+      timeoutIds.forEach((timeoutId) => window.clearTimeout(timeoutId));
+    };
+  }, [mySheet, shouldShowTurnTopbar, isTurnTopbarCollapsed, room?.status, gameState?.phase]);
 
   useEffect(() => {
     if (!selectedIntent) {
@@ -519,17 +653,50 @@ export function GamePage() {
   }
 
   return (
-    <main
-      className={`page-shell game-page-shell ${
-        shouldShowTurnTopbar
-          ? isTurnTopbarCollapsed
-            ? "game-page-shell-with-turnbar-collapsed"
-            : "game-page-shell-with-turnbar"
-          : ""
-      }`}
-    >
-      {shouldShowTurnTopbar ? (
-        <section className={`turn-topbar panel ${isTurnTopbarCollapsed ? "turn-topbar-collapsed" : ""}`}>
+    <main className="page-shell game-page-shell">
+      {error ? <p className="error-banner">{error}</p> : null}
+
+      <div className="game-stage-layout">
+        <section className="game-main-stack">
+          <article className="panel primary-sheet primary-sheet-simplified">
+            <div
+              ref={boardStageViewportRef}
+              className={`score-sheet-stage ${boardStageMetrics.scale < 0.995 ? "score-sheet-stage-scaled" : ""}`}
+              style={boardStageMetrics.height ? { height: `${boardStageMetrics.height}px` } : undefined}
+            >
+              <div
+                ref={boardStageContentRef}
+                className="score-sheet-stage-scale"
+                style={
+                  boardStageMetrics.scale < 0.995
+                    ? {
+                        transform: `scale(${boardStageMetrics.scale})`
+                      }
+                    : undefined
+                }
+              >
+                {mySheet ? (
+                  <ScoreSheetBoard
+                    player={mySheet}
+                    activeSelections={activeSelections}
+                    currentRound={gameState?.round ?? 1}
+                    totalRounds={gameState?.totalRounds ?? 1}
+                    selection={sheetSelection}
+                    previewPlacement={pendingPlacement}
+                    previewValue={pendingPlacementValue}
+                    onSelect={handleSheetPlacement}
+                  />
+                ) : (
+                  <div className="score-sheet-loading">Waiting for sync</div>
+                )}
+              </div>
+            </div>
+          </article>
+        </section>
+
+        <aside className="game-side-rail">
+          {shouldShowTurnTopbar ? (
+            <section className={`turn-topbar panel ${isTurnTopbarCollapsed ? "turn-topbar-collapsed" : ""}`}>
           <div className="turn-topbar-head">
             <div className="turn-topbar-title">
               <p className="eyebrow">Your Turn</p>
@@ -599,7 +766,7 @@ export function GamePage() {
               </button>
             </div>
           </div>
-          {!isTurnTopbarCollapsed && selectedIntent && !selectedIntentHasLegalTarget ? (
+              {!isTurnTopbarCollapsed && selectedIntent && !selectedIntentHasLegalTarget ? (
             <div className="error-banner turn-topbar-banner">
               当前选中的对象在所有允许区域里都没有合法落点。
               {selectedIntent.kind === "passive"
@@ -615,7 +782,7 @@ export function GamePage() {
                     : " 请取消当前奖励选择，改用其他可解析的奖励或等待前一动作调整。"}
             </div>
           ) : null}
-          {!isTurnTopbarCollapsed ? <div className="turn-topbar-content">
+              {!isTurnTopbarCollapsed ? <div className="turn-topbar-content">
             {canRoll ? (
               <div className="turn-action-block">
                 <button className="primary-button" onClick={handleRoll} disabled={pendingAction !== null}>
@@ -859,76 +1026,57 @@ export function GamePage() {
               )}
             </div>
           </div> : null}
-        </section>
-      ) : null}
-
-      <section className="game-header-bar panel">
-        <div>
-          <span className="status-label">房间</span>
-          <strong>{normalizedRoomId}</strong>
-        </div>
-        <div>
-          <span className="status-label">规则书</span>
-          <a
-            className="inline-action-link"
-            href={getRulesHref(rulesLanguage)}
-            target="_blank"
-            rel="noreferrer"
-          >
-            快速打开
-          </a>
-        </div>
-      </section>
-
-      {error ? <p className="error-banner">{error}</p> : null}
-
-      <section className="game-main-stack">
-        <article className="panel primary-sheet primary-sheet-simplified">
-          <div className="score-sheet-stage">
-            {mySheet ? (
-              <ScoreSheetBoard
-                player={mySheet}
-                activeSelections={activeSelections}
-                currentRound={gameState?.round ?? 1}
-                totalRounds={gameState?.totalRounds ?? 1}
-                selection={sheetSelection}
-                previewPlacement={pendingPlacement}
-                previewValue={pendingPlacementValue}
-                onSelect={handleSheetPlacement}
-              />
-            ) : (
-              <div className="score-sheet-loading">Waiting for sync</div>
-            )}
-          </div>
-        </article>
-
-        <article className="panel game-log-panel">
-          <h2>最近日志</h2>
-          <div className="log-list">
-            {(gameState?.logs.slice(-5).reverse() ?? []).map((entry) => (
-              <div key={entry.id} className="log-item">
-                {entry.message}
-              </div>
-            ))}
-          </div>
-          {gameState?.phase === "finished" && gameState.standings ? (
-            <div className="action-group final-standings">
-              <h3>最终排名</h3>
-              {gameState.standings.map((standing) => {
-                const player = room?.players.find((entry) => entry.id === standing.playerId);
-                return (
-                  <div key={standing.playerId} className="log-item">
-                    #{standing.rank} {player?.nickname ?? standing.playerId}: {standing.totalScore}
-                  </div>
-                );
-              })}
-            </div>
+            </section>
           ) : null}
-        </article>
-      </section>
-      <div className="link-row">
-        <Link to={`/room/${normalizedRoomId}`}>返回房间页</Link>
-        <Link to="/">返回首页</Link>
+
+          <article className="panel game-log-panel">
+            <h2>最近日志</h2>
+            <div className="log-list">
+              {(gameState?.logs.slice(-5).reverse() ?? []).map((entry) => (
+                <div key={entry.id} className="log-item">
+                  {entry.message}
+                </div>
+              ))}
+            </div>
+            {gameState?.phase === "finished" && gameState.standings ? (
+              <div className="action-group final-standings">
+                <h3>最终排名</h3>
+                {gameState.standings.map((standing) => {
+                  const player = room?.players.find((entry) => entry.id === standing.playerId);
+                  return (
+                    <div key={standing.playerId} className="log-item">
+                      #{standing.rank} {player?.nickname ?? standing.playerId}: {standing.totalScore}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
+          </article>
+
+          <section className="panel game-footer-bar">
+            <div className="link-row game-footer-links">
+              <Link to={`/room/${normalizedRoomId}`}>返回房间页</Link>
+              <Link to="/">返回首页</Link>
+            </div>
+            <div className="game-footer-meta">
+              <div className="game-footer-chip">
+                <span className="status-label">房间号</span>
+                <strong>{normalizedRoomId}</strong>
+              </div>
+              <div className="game-footer-chip">
+                <span className="status-label">规则书</span>
+                <a
+                  className="inline-action-link inline-action-link-small"
+                  href={getRulesHref(rulesLanguage)}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  快速打开
+                </a>
+              </div>
+            </div>
+          </section>
+        </aside>
       </div>
     </main>
   );
@@ -1074,15 +1222,17 @@ function getLegalPlacements(selection: SheetSelectionState): SheetPlacement[] {
 }
 
 function isSamePlacement(left: SheetPlacement, right: SheetPlacement) {
-  return left.zone === right.zone && left.cellId === right.cellId;
+  return left.zone === right.zone && getPlacementCellId(left) === getPlacementCellId(right);
 }
 
 function describePlacement(placement: SheetPlacement) {
+  const cellId = getPlacementCellId(placement);
+
   switch (placement.zone) {
     case "yellow":
-      return `黄色区域${placement.cellId ? ` ${placement.cellId}` : ""}`;
+      return `黄色区域${cellId ? ` ${cellId}` : ""}`;
     case "blue":
-      return `蓝色区域${placement.cellId ? ` ${placement.cellId}` : ""}`;
+      return `蓝色区域${cellId ? ` ${cellId}` : ""}`;
     case "green":
       return "绿色下一格";
     case "orange":
@@ -1092,6 +1242,10 @@ function describePlacement(placement: SheetPlacement) {
     default:
       return "当前落点";
   }
+}
+
+function getPlacementCellId(placement: SheetPlacement) {
+  return "cellId" in placement ? placement.cellId : null;
 }
 
 function describeBonus(bonus: PendingSheetBonus) {

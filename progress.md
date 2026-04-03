@@ -6,4 +6,7 @@ Original prompt: 开始做精修：把奖励图标位置、印刷字样、局部
 - 2026-04-01: Verified the updated board by creating a local room, starting a real game session, and capturing fresh screenshots from the running app.
 - 2026-04-01: Added the printed top black bonus strip and rebuilt the lower score-total band into a connected paper-style scorer with plus signs and a larger `TOTAL` box.
 - 2026-04-01: Re-ran the local screenshot flow after the top/bottom pass and checked the full board composition against the reference.
+- 2026-04-03: Reworked the game-page desktop layout so the score sheet lives in a dedicated left stage and the turn controls / log / room meta live in a sticky right rail instead of stacking under the board.
+- 2026-04-03: Added viewport-aware score-sheet scaling for desktop widths so the primary board fits inside a 1440x900 game view without forcing page scrolling during active play.
+- 2026-04-03: Verified the new layout in a live local game session; the page height now fits within a 1440x900 viewport and `npm --workspace @clever/web run typecheck` passes.
 - TODO: If we continue polishing, next pass should tighten the top strip iconography and the exact footer connector geometry so the sheet edges and print density get even closer to the scan.

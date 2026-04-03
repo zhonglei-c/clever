@@ -60,8 +60,6 @@ export function ScoreSheetBoard({
 
   return (
     <div className="score-sheet-board">
-      <ScoreSheetChrome />
-
       <div className="score-sheet-board-content">
         <header className="score-sheet-topbar">
           <div className="score-sheet-used-dice">
@@ -231,10 +229,17 @@ function isPreviewPlacement(
   previewPlacement: SheetPlacement | null,
   placement: SheetPlacement,
 ) {
-  return previewPlacement?.zone === placement.zone && previewPlacement?.cellId === placement.cellId;
+  return (
+    previewPlacement?.zone === placement.zone &&
+    getPlacementCellId(previewPlacement) === getPlacementCellId(placement)
+  );
 }
 
 const RESOURCE_TRACK_BASE_SLOTS = 7;
+
+function getPlacementCellId(placement: SheetPlacement) {
+  return "cellId" in placement ? placement.cellId : null;
+}
 
 function getRoundRewardLabel(round: number) {
   switch (round) {
@@ -297,24 +302,6 @@ function ResourceTrack({
           })}
         </div>
       </div>
-    </div>
-  );
-}
-
-function ScoreSheetChrome() {
-  return (
-    <div className="score-sheet-board-chrome" aria-hidden="true">
-      <svg viewBox="0 0 1200 980" preserveAspectRatio="none" className="score-sheet-board-chrome-svg">
-        <rect x="16" y="16" width="1168" height="948" rx="34" className="score-sheet-chrome-outer" />
-        <rect x="38" y="38" width="1124" height="904" rx="28" className="score-sheet-chrome-inner" />
-        <path d="M70 142h1060" className="score-sheet-chrome-rule" />
-        <path d="M70 844h1060" className="score-sheet-chrome-rule" />
-        <path d="M598 38v106" className="score-sheet-chrome-rule-faint" />
-        <circle cx="96" cy="96" r="8" className="score-sheet-chrome-dot" />
-        <circle cx="1104" cy="96" r="8" className="score-sheet-chrome-dot" />
-        <circle cx="96" cy="884" r="8" className="score-sheet-chrome-dot" />
-        <circle cx="1104" cy="884" r="8" className="score-sheet-chrome-dot" />
-      </svg>
     </div>
   );
 }
