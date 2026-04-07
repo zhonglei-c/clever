@@ -805,7 +805,7 @@ a {
 .score-sheet-topbar {
   grid-area: top;
   display: grid;
-  grid-template-columns: 136px minmax(0, 1fr);
+  grid-template-columns: 184px minmax(0, 1fr);
   gap: 10px;
   align-items: start;
 }
@@ -858,10 +858,13 @@ a {
 }
 
 .score-sheet-used-die-slot {
-  min-height: 58px;
+  aspect-ratio: 1;
+  min-height: 0;
   position: relative;
   display: grid;
   place-items: center;
+  overflow: hidden;
+  padding: 6px;
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.22);
   box-shadow:
@@ -874,49 +877,20 @@ a {
     linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(241, 241, 238, 0.94));
 }
 
-.score-sheet-used-die-color {
-  position: absolute;
-  top: 8px;
-  left: 8px;
-  width: 9px;
-  height: 9px;
-  border-radius: 999px;
-  box-shadow: 0 0 0 1px rgba(18, 19, 23, 0.16);
+.score-sheet-used-die-face {
+  width: 100%;
+  height: 100%;
+  border-radius: 14px;
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 255, 255, 0.48),
+    0 2px 0 rgba(18, 19, 23, 0.12);
 }
 
-.score-sheet-used-die-color-yellow {
-  background: #f4cb2f;
-}
-
-.score-sheet-used-die-color-blue {
-  background: #2e89d1;
-}
-
-.score-sheet-used-die-color-green {
-  background: #1ba74d;
-}
-
-.score-sheet-used-die-color-orange {
-  background: #ef8b18;
-}
-
-.score-sheet-used-die-color-purple {
-  background: #6f3f97;
-}
-
-.score-sheet-used-die-color-white {
-  background: #ffffff;
-}
-
-.score-sheet-used-die-value,
+.score-sheet-used-die-face span,
 .score-sheet-used-die-placeholder {
-  font-size: 1.45rem;
+  font-size: clamp(1.1rem, 1.8vw, 1.6rem);
   font-weight: 950;
   line-height: 1;
-}
-
-.score-sheet-used-die-value {
-  color: rgba(20, 23, 28, 0.94);
 }
 
 .score-sheet-used-die-placeholder {

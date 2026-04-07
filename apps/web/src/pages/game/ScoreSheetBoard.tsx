@@ -64,8 +64,8 @@ export function ScoreSheetBoard({
         <header className="score-sheet-topbar">
           <div className="score-sheet-used-dice">
             <div className="score-sheet-used-dice-head">
-              <span className="score-sheet-panel-label">Selected Dice</span>
-              <strong>已选骰子</strong>
+              <span className="score-sheet-panel-label">Used Dice</span>
+              <strong>已使用骰子</strong>
             </div>
             <div className="score-sheet-used-dice-slots">
               {Array.from({ length: 3 }, (_, index) => {
@@ -77,13 +77,12 @@ export function ScoreSheetBoard({
                     className={`score-sheet-used-die-slot ${
                       die ? "score-sheet-used-die-slot-filled" : ""
                     }`}
-                    title={die ? `${die.id} ${die.value}` : `已选骰位 ${index + 1}`}
+                    title={die ? `${die.id} ${die.value}` : `已使用骰位 ${index + 1}`}
                   >
                     {die ? (
-                      <>
-                        <span className={`score-sheet-used-die-color score-sheet-used-die-color-${die.color}`} />
-                        <strong className="score-sheet-used-die-value">{die.value}</strong>
-                      </>
+                      <div className={`score-sheet-used-die-face die-card die-card-square die-${die.color}`}>
+                        <span>{die.value}</span>
+                      </div>
                     ) : (
                       <span className="score-sheet-used-die-placeholder">{index + 1}</span>
                     )}

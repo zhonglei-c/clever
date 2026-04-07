@@ -1009,11 +1009,13 @@ export function GamePage() {
             <div className="turn-action-block">
               <div className="turn-action-header">
                 <h3>已锁定骰子</h3>
-                <p className="helper-copy">这里展示本回合已经被主动玩家拿走、目前锁定在右侧流程里的骰子。</p>
+                <p className="helper-copy">
+                  这里展示本回合已经进入银盘、不会再参与后续投掷的锁定骰子，不包含玩家已经拿走的已使用骰子。
+                </p>
               </div>
-              {activeSelections.length > 0 ? (
+              {silverPlatter.length > 0 ? (
                 <div className="locked-dice-grid">
-                  {activeSelections.map((die, index) => (
+                  {silverPlatter.map((die, index) => (
                     <div key={`locked-${die.id}-${die.value}-${index}`} className="die-action-row die-action-row-die">
                       <div className={`die-card die-card-square die-card-locked die-${die.color}`}>
                         <span>{die.value}</span>
@@ -1022,7 +1024,7 @@ export function GamePage() {
                   ))}
                 </div>
               ) : (
-                <p className="helper-copy">这回合还没有锁定骰子。</p>
+                <p className="helper-copy">这回合还没有进入银盘的锁定骰子。</p>
               )}
             </div>
           </div> : null}
