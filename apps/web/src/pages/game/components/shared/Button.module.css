@@ -1,0 +1,45 @@
+.button {
+  min-height: 44px;
+  border-radius: 14px;
+  font: inherit;
+  border: 1px solid transparent;
+  padding: 0 16px;
+  cursor: pointer;
+}
+
+.button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.primary {
+  background: var(--accent);
+  color: #fff8ef;
+}
+
+.secondary {
+  background: rgba(190, 91, 42, 0.12);
+  border-color: rgba(190, 91, 42, 0.24);
+  color: var(--ink);
+}
+
+.micro {
+  min-height: 34px;
+  border-radius: 999px;
+  border: 1px solid rgba(190, 91, 42, 0.24);
+  background: rgba(190, 91, 42, 0.08);
+  padding: 0 12px;
+  color: var(--ink);
+}
+
+.microEmphasis {
+  composes: micro;
+  background: rgba(149, 182, 84, 0.22);
+  border-color: rgba(149, 182, 84, 0.48);
+}
+
+.microSelected {
+  composes: micro;
+  background: rgba(190, 91, 42, 0.2);
+  border-color: rgba(190, 91, 42, 0.45);
+}

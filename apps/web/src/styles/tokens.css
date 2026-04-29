@@ -1,0 +1,38 @@
+:root {
+  color-scheme: light;
+  --bg: #f4efe3;
+  --paper: #fff9ef;
+  --ink: #24313d;
+  --muted: #66707d;
+  --line: #d3c6a6;
+  --accent: #be5b2a;
+  --yellow: #f1ca4b;
+  --blue: #73add8;
+  --green: #95b654;
+  --orange: #dd8e3f;
+  --purple: #8f79b9;
+  --shadow: 0 18px 40px rgba(36, 49, 61, 0.08);
+  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(circle at top, rgba(241, 202, 75, 0.2), transparent 30%),
+    linear-gradient(180deg, #f9f3e3 0%, var(--bg) 100%);
+  color: var(--ink);
+}
+
+a {
+  color: inherit;
+}

@@ -1,0 +1,60 @@
+.dieCard {
+  display: grid;
+  gap: 4px;
+  align-items: center;
+  border-radius: 18px;
+  padding: 14px 12px;
+  border: 1px solid rgba(36, 49, 61, 0.12);
+  text-align: center;
+  background: rgba(255, 255, 255, 0.85);
+  color: var(--ink);
+}
+
+.dieCard span {
+  font-size: 1.35rem;
+  font-weight: 700;
+}
+
+.square {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 20px;
+}
+
+.square span {
+  font-size: 2rem;
+  line-height: 1;
+}
+
+.yellow { background: rgba(241, 202, 75, 0.42); }
+.blue { background: rgba(115, 173, 216, 0.3); }
+.green { background: rgba(149, 182, 84, 0.32); }
+.orange { background: rgba(221, 142, 63, 0.34); }
+.purple { background: rgba(143, 121, 185, 0.28); }
+.white { background: rgba(255, 255, 255, 0.95); }
+
+.actionable { cursor: pointer; }
+
+.selected {
+  box-shadow: 0 0 0 3px rgba(190, 91, 42, 0.3);
+  transform: translateY(-1px);
+}
+
+.blocked {
+  opacity: 0.55;
+  filter: grayscale(0.2);
+}
+
+.locked {
+  cursor: default;
+  box-shadow: inset 0 0 0 1px rgba(36, 49, 61, 0.06);
+}
+
+.dieCard:disabled {
+  cursor: default;
+}

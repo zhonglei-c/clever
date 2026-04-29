@@ -1,0 +1,43 @@
+.sideRail {
+  display: flex;
+  flex-direction: column;
+}
+
+.tabBar {
+  display: flex;
+  gap: 2px;
+  padding: 6px 8px 0;
+  border-bottom: 2px solid var(--border);
+  overflow-x: auto;
+}
+
+.tab {
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  border: none;
+  border-radius: 6px 6px 0 0;
+  background: transparent;
+  color: var(--ink-muted);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.1s, color 0.1s;
+}
+
+.tab:hover {
+  background: var(--bg);
+  color: var(--ink);
+}
+
+.tabActive {
+  background: var(--paper);
+  color: var(--ink);
+  border: 2px solid var(--border);
+  border-bottom-color: var(--paper);
+  margin-bottom: -2px;
+}
+
+.tabContent {
+  flex: 1;
+  overflow-y: auto;
+}

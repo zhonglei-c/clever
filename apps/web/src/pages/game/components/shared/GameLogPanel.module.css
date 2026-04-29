@@ -1,0 +1,11 @@
+.logList {
+  display: grid;
+  gap: 8px;
+}
+
+.logItem {
+  border-radius: 12px;
+  background: rgba(36, 49, 61, 0.06);
+  padding: 10px 12px;
+  color: var(--ink);
+}

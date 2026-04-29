@@ -1,0 +1,127 @@
+.turnControls {
+  padding: 10px 14px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.actionBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.actionHeader h3 {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.helper {
+  margin: 0;
+  font-size: 11px;
+  color: var(--ink-muted);
+  line-height: 1.5;
+}
+
+.miniActions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.diceGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.dieRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.lockedDiceGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.optionGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Confirmation bar */
+.confirmBar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--bg);
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+
+.confirmCopy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.confirmKicker {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-muted);
+}
+
+.confirmTitle {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.confirmActions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* Guide bar */
+.guideBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--bg);
+  border-radius: 6px;
+}
+
+.guideCopy {
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+/* Error banner */
+.errorBanner {
+  padding: 8px 10px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #a33;
+  background: #fff0f0;
+  border-radius: 4px;
+}
+
+/* Info banner */
+.infoBanner {
+  margin-top: 6px;
+  padding: 6px 8px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: #555;
+  background: var(--bg);
+  border-radius: 4px;
+}
